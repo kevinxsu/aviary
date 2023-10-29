@@ -1,0 +1,65 @@
+version: "3"
+
+services:
+  scylla-node1:
+    image: scylladb/scylla:5.1.0
+    container_name: scylla-node1
+    environment:
+      - CLUSTER_NAME=scylla-docker-cluster
+    restart: always
+    command:
+      - --seeds="scylla-node1"
+      - --alternator-port 8000
+      - --alternator-write-isolation unsafe
+      - --smp 1
+      - --memory 750M
+      - --overprovisioned 1
+    volumes:
+      - "./scylla/scylla.yaml:/etc/scylla/scylla.yaml"
+      - "./scylla/cassandra-rackdc.properties.dc1:/etc/scylla/cassandra-rackdc.properties"
+      - "./scylla/mutant-data.txt:/mutant-data.txt"
+    networks:
+      - test-net
+
+  scylla-node2:
+    image: scylladb/scylla:5.1.0
+    container_name: scylla-node2
+    environment:
+      - CLUSTER_NAME=scylla-docker-cluster
+    restart: always
+    command:
+      - --seeds="scylla-node1"
+      - --alternator-port 8000
+      - --alternator-write-isolation unsafe
+      - --smp 1
+      - --memory 750M
+      - --overprovisioned 1
+    volumes:
+      - "./scylla/scylla.yaml:/etc/scylla/scylla.yaml"
+      - "./scylla/cassandra-rackdc.properties.dc1:/etc/scylla/cassandra-rackdc.properties"
+    networks:
+      - test-net
+
+  scylla-node3:
+    image: scylladb/scylla:5.1.0
+    container_name: scylla-node3
+    environment:
+      - CLUSTER_NAME=scylla-docker-cluster
+    restart: always
+    command:
+      - --seeds="scylla-node1"
+      - --alternator-port 8000
+      - --alternator-write-isolation unsafe
+      - --smp 1
+      - --memory 750M
+      - --overprovisioned 1
+    volumes:
+      - "./scylla/scylla.yaml:/etc/scylla/scylla.yaml"
+      - "./scylla/cassandra-rackdc.properties.dc1:/etc/scylla/cassandra-rackdc.properties"
+    networks:
+      - test-net
+
+networks:
+  test-net:
+    name: test-net
+    external: true

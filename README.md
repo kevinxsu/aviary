@@ -1,18 +1,17 @@
 # aviary
 
-### Compiling
+## Setting up a ScyllaDB three-node cluster (from example code)
 
-To compile down to a program executable that can be directly run:
 ```
-$ rustc src/main.rs
+$ git clone https://github.com/scylladb/scylla-code-samples.git
+$ echo "fs.aio-max-nr = 1048576" >> /etc/sysctl.conf
+$ sysctl -p /etc/sysctl.conf
+$ docker stop $(docker ps -aq)
+$ docker rm $(docker ps -aq)
+$ cd scylla-code-samples/mms
+$ docker compose up -d
 ```
-
-To compile down to WebAssembly (WASM), first add the general WASM target:
+After a minute or so, the nodes should be up and running and can be verified with 
 ```
-$ rustup target add wasm32-unknown-unknown
-```
-
-Then:
-```
-$ rustc --target wasm32-unknown-unknown --crate-type=cdylib src/main.rs
+$ docker exec -it scylla-node1 nodetool status
 ```
