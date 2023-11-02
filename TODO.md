@@ -1,28 +1,24 @@
 # TODO
 
 ## Docker
-- [ ] Figure out how to setup ScyllaDB clusters on Docker
-- [ ] Figure out how communication between containerized nodes work
-- [ ] Figure out how to write a docker-compose file/Dockerfile
-
-## ScyllaDB
-- [ ] Figure out how scylla.yaml works 
-- [ ] Read more about Scylla's snapshots and sharding works
-- [ ] Learn more about Scylla's architecture
-    - [ ] consistency model (snapshot/mvcc?)
-    - [ ] sharding
-    - [ ] CQL vs Alternator modes
+- [ ] Figure out how to setup sharded MongDB clusters on Docker (mongos + config server + mongod)
+- [ ] Figure out how communication between containerized nodes work (probably just use local port and have containers communicate through there)
+- [ ] Figure out how to write a docker-compose file/Dockerfile (to make it easier to setup the distributed environment)
 
 ## Design 
 - [ ] Finalize Aviary's high-level architecture 
     - [ ] Determine what requirements the underlying database must have
-    - [ ] Figure out how we're going to do MapReduce and how 
-    - [ ] Figure out if Scylla is good enough or if we should go back to MongoDB
+    - [ ] Figure out how we're going to do MapReduce
+    - [ ] Figure out how to use MongoDB's MVCC for colocated Aviary workers to directly communicate with mongod shards (this is pretty illegal according to mongodb docs though)
+- [ ] How to make Aviary coordinator fault tolerant?
+- [ ] How does client query Aviary coordinator?
 
 ## Programming
-- [ ] Read `scylladb/gocql` driver documentation 
-    - [ ] shard-awareness
-- [ ] Look into `scylladb/cpp-driver`
+- [ ] Read MongoDB Go driver
+- [ ] Aviary Coordinator 
+- [ ] Aviary Worker 
+    - for now, just have a single worker in each container co-located with the shard 
+    - in future, can have additional process that spawns workers (k8s type)
 
 ## Papers 
 - [ ] MapReduce
