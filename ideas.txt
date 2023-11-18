@@ -1,0 +1,41 @@
+_package aviary
+
+type Identifier string 
+
+// cryptographically generate globally unique id's 
+func gensym() Identifier { /* .. */ }
+
+type MapReduceJob struct {
+	Completed []Identifier 
+	Ongoing []Identifier 
+	JobID Identifier 
+
+	mu sync.Mutex
+}
+
+type Coordinator struct {
+	jobs []MapReduceJob
+	mu sync.Mutex
+}
+
+type DataPair struct { 
+	Key interface{} 
+	Value interface{}
+}
+
+type ActionType string 
+const (
+	INIT = "INIT"
+	MAP = "MAP"
+	REDUCE = "REDUCE"
+	IDLE = "IDLE"
+)
+
+type WorkerState struct {
+	JobID Identifier 
+	WorkerID Identifier 
+	Action ActionType
+}
+
+// does a worker keep its results in memory, until its done? 
+// and then it saves it to the shard?

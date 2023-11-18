@@ -23,3 +23,9 @@
 ## Papers 
 - [ ] MapReduce
 - [ ] https://www.cs.princeton.edu/~wlloyd/papers/port-osdi20.pdf
+
+1. Set up MongoDB Shard Clusters
+    - Write Docker compose file to automate everything
+    - https://hub.docker.com/_/docker
+2. Implement Aviary Coordinator
+3. Implement Aviary Worker

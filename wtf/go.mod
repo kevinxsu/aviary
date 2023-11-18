@@ -1,16 +1,15 @@
 module aviary
 
-go 1.21.4
+go 1.21.3
 
 require (
 	github.com/gocql/gocql v1.6.0
-	go.mongodb.org/mongo-driver v1.13.0
+	go.mongodb.org/mongo-driver v1.12.1
 	go.uber.org/zap v1.26.0
 )
 
 require (
 	github.com/golang/snappy v0.0.3 // indirect
-	github.com/google/uuid v1.4.0 // indirect
 	github.com/hailocab/go-hostpool v0.0.0-20160125115350-e80d13ce29ed // indirect
 	github.com/klauspost/compress v1.13.6 // indirect
 	github.com/montanaflynn/stats v0.0.0-20171201202039-1bf9dbcd8cbe // indirect
@@ -24,3 +23,5 @@ require (
 	golang.org/x/text v0.7.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 )
+
+// replace github.com/gocql/gocql => github.com/scylladb/gocql v1.11.1
