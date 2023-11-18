@@ -8,7 +8,7 @@ The main difference between MapReduce in Aviary versus other popular offerings (
 
 - actually, this might not be true since we're not storing state into the database itself (but we could...?)
 
-Aviary relies on the Aviary Coordinator (AvCoordinator), which is the frontend through which clients can start MapReduce jobs, and the Aviary Workers (AvWorker), which act as the backend processes that actually do the computation.
+Aviary relies on the Clerk, which is teh fronten through which clients can start their MapReduce jobs, the Aviary Coordinator (AvCoordinator), which is the backend that handles worker coordination and job scheduling/management, and the Aviary Workers (AvWorker), which are the processes that are co-located with each `mongod` shard server that actually performs the computation.
 
 ## MongoDB Crash Course
 
@@ -35,6 +35,21 @@ Data in MongoDB is sharded at the collection level, which distributes the collec
 - chunks are split when they grow beyond the configured chunk size, which by default is 128 megabytes
 - chunks are migrated when a shard contains too many chunks of a collection relative to other shards
 
+## Workflow
+
+1. Client wants to start a MapReduce job.
+    1. `go run clerk.go`
+    2. `(aviary) ~> insert [path/to/map.go] [path/to/reduce.go]`
+        - clerk will read in the files, convert them to strings, marshal into BSON, and insert to MongoDB
+    3. `(aviary) ~> begin [client id] [map.go] [reduce.go] [database name] [collection name]`
+    4. Wait for result, or see progress via `(aviary) ~> show [client id]`
+2. Clerk sends RPCs to notify Coordinator of the new job
+3. Coordinator does bookkeeping (what kind though??) and notifies the Workers through RPC.
+    - TODO: implement observer pattern for server join/leave
+4. Worker notifies Coordinator when done / Coordinator occasionally pings Worker to check progress
+5. When MR job complete, results of MR job will be in the database. Client will not know whether or not it exists.
+    - TODO: should the results only be accessible through Aviary?
+
 ## Aviary Coordinator
 
 The Aviary Coordinator acts as a wrapper around the MongoDB database.
@@ -48,9 +63,6 @@ The `aviary-intermediates` collection **is sharded** so that each worker can dir
 - again, not 100% sure if its okay to not go through a mongos router : really need to figure out if this will be okay or not
 
 Once the functions have been inserted into the collection, the AvCoordinator will start notify and delegate tasks to AvWorkers, marking the start of a MapReduce job.
-
-<!-- Since Aviary stores its state in the sharded `aviary` collections within the database, for each AvWorker to see the `Map()` and `Reduce()` functions, the AvCoordinator will  -->
-<!-- The Coordinator will then forward these functions to the Aviary Workers and will begin coordinating the MapReduce. -->
 
 ### Aviary Coordinator Functionality
 
@@ -126,9 +138,13 @@ Clients should never be directly interacting with Aviary Workers, so all request
 // 
 ```
 
+
 ### WORKER TODO
 
 Add fault-tolerance later, just get a working thing running on a single container first.
+    - i think that AvWorkers should manage fault-tolerance here?
+    - but coordinator also needs to keep track of what is happening too, but it doesn't make sense
+        for the coordinator to manage worker fault-tolerance since they're running on a separate container
 
 ## Network and Communication
 

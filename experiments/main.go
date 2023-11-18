@@ -14,7 +14,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// const uri = "mongodb://localhost:27017"
 const uri = "mongodb://127.0.0.1:27117,127.0.0.1:27118"
 
 type PhaseType string
@@ -40,6 +39,8 @@ type WorkerState struct {
 	Data     DataPair
 }
 
+// note: this was just to mess around with the mongodb go driver
+
 func _main() {
 	// Use the SetServerAPIOptions() method to set the Stable API version to 1
 	serverAPI := options.ServerAPI(options.ServerAPIVersion1)
@@ -60,16 +61,16 @@ func _main() {
 	if err := client.Database("admin").RunCommand(context.TODO(), bson.D{{"ping", 1}}).Decode(&result); err != nil {
 		panic(err)
 	}
+
 	fmt.Println("Pinged your deployment. You successfully connected to MongoDB!")
 
-	// collection := client.Database("test").Collection("nats")
-	// collection := client.Database("test").Collection("nats")
 	collection := client.Database("MyDatabase").Collection("aviary-intermediates")
 	ctxt, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	state := WorkerState{JobID: 0, WorkerID: 0, Phase: MAP, Data: DataPair{"alfalfa", 0}}
 	// res, _ := collection.InsertOne(ctxt, bson.D{ {"JobID", 0}, {"WorkerID", 0}, {"Phase", "MAP"}, {"alfalfa", 0}})
+	// state := WorkerState{JobID: 0, WorkerID: 0, Phase: MAP, }
 
 	var buffer bytes.Buffer
 	enc := gob.NewEncoder(&buffer)
@@ -80,9 +81,6 @@ func _main() {
 		log.Fatal(err)
 	}
 
-	// bson_state, err := bson.Marshal(state)
-	// res, _ := collection.InsertOne(ctxt, state)
-	// res, err := collection.InsertOne(ctxt, bson_state)
 	res, _ := collection.InsertOne(ctxt, buffer)
 	if err != nil {
 		log.Fatal(err)
@@ -91,48 +89,7 @@ func _main() {
 	id := res.InsertedID
 	fmt.Printf("res id : %s\n", id)
 
-	// res, _ = collection.InsertOne(ctxt, bson.D{
-	// 	/* {"state", bson.D{
-	// 		{"job", 0},
-	// 		{"worker_id", 1},
-	// 		{"phase", "map"},
-	// 	}},
-	// 	{"the", 99}}) */
-
-	// 	{"JobID", 0},
-	// 	{"WorkerID", 1},
-	// 	{"Phase", "MAP"},
-	// 	{"the", 99}})
-	// id = res.InsertedID
-	// fmt.Printf("res id : %s\n", id)
-
-	// res, _ = collection.InsertOne(ctxt, bson.D{
-	// 	/* {"state", bson.D{
-	// 		{"job", 0},
-	// 		{"worker_id", 2},
-	// 		{"phase", "map"},
-	// 	}},
-	// 	{"the", 1}}) */
-	// 	{"JobID", 0},
-	// 	{"WorkerID", 2},
-	// 	{"Phase", "MAP"},
-	// 	{"the", 1}})
-	// id = res.InsertedID
-	// fmt.Printf("res id : %s\n", id)
-
-	// for i := 0; i < 123; i++ {
-	// 	res, _ := collection.InsertOne(ctxt, bson.D{{"vasdfasdfasdfasdfasfsdfasdfsdfasdfasdfasdfasdf", i}})
-	// 	id := res.InsertedID
-	// 	fmt.Printf("res id : %s\n", id)
-	// }
-
-	// // sum := 0
-
-	// coll := collection.FindOne(ctxt, filter).Decode(&result)
-	// coll := collection
-	// filter := bson.D{{"the", {}}}
 	for i := 0; i < 3; i++ {
-
 		// filter := bson.D{{"WorkerID", i}}
 		filter := bson.D{}
 
@@ -164,26 +121,4 @@ func _main() {
 			log.Fatal(err)
 		}
 	}
-
-	/*
-		cur, err := collection.Find(ctxt, bson.D{})
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer cur.Close(ctxt)
-
-		for cur.Next(ctxt) {
-			var result bson.D
-			err := cur.Decode(&result)
-			if err != nil {
-				log.Fatal(err)
-			}
-			// sum += result.(int)
-			fmt.Printf("result: %s\n", result)
-		}
-
-		if err := cur.Err(); err != nil {
-			log.Fatal(err)
-		}
-	*/
 }
