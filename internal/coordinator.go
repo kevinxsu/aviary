@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -31,10 +32,10 @@ type Job struct {
 	mu        sync.Mutex
 
 	// extraneous details about the job from a Clerk RPC
-	MapFunc        string
-	ReduceFunc     string
 	DatabaseName   string
 	CollectionName string
+	Tag            string
+	FunctionID     primitive.ObjectID
 }
 
 // TODO: "implement" coordinator fault-tolerance
@@ -119,12 +120,14 @@ func (c *AviaryCoordinator) mongoConnection(ch chan bool) {
 	// send ping to confirm successful connection
 	var result bson.M
 	if err := client.Database("admin").RunCommand(context.TODO(), bson.D{{"ping", 1}}).Decode(&result); err != nil {
+		// TODO: change so aviary still continues
 		panic(err)
 	}
 	fmt.Println("Aviary Coordinator connected to MongoDB")
 
-	intermediates := client.Database("MyDatabase").Collection("aviary-intermediates")
-	functions := client.Database("MyDatabase").Collection("aviary-funcs")
+	// for now, we'll assume that all the users use one database
+	intermediates := client.Database("db").Collection("aviaryIntermediates")
+	functions := client.Database("db").Collection("aviaryFuncs")
 
 	// unblock MakeCoordinator thread
 	ch <- true
@@ -199,10 +202,10 @@ func (c *AviaryCoordinator) startNewJob(request *ClerkRequest) {
 	defer c.mu.Unlock()
 
 	clientID := request.ClientID
-	mapFunc := request.MapFunc
-	reduceFunc := request.ReduceFunc
+	functionID := request.FunctionID
 	dbName := request.DatabaseName
 	collName := request.CollectionName
+	tag := request.Tag
 
 	// generate a random job id
 	jobID := IHash((c._gensym()).String())
@@ -212,10 +215,10 @@ func (c *AviaryCoordinator) startNewJob(request *ClerkRequest) {
 		JobID:          jobID,
 		Completed:      make([]int, 0),
 		Ongoing:        make([]int, 1),
-		MapFunc:        mapFunc,
-		ReduceFunc:     reduceFunc,
 		DatabaseName:   dbName,
 		CollectionName: collName,
+		Tag:            tag,
+		FunctionID:     functionID,
 	}
 	// insert the new job into the client's list of jobs
 	c.jobs[clientID] = append(c.jobs[clientID], newJob)
@@ -225,8 +228,8 @@ func (c *AviaryCoordinator) startNewJob(request *ClerkRequest) {
 	c.insertFunctionCh <- MongoFunction{
 		ClientID:   clientID,
 		JobID:      jobID,
-		MapFunc:    mapFunc,
-		ReduceFunc: reduceFunc,
+		MapFunc:    "mapFunc",
+		ReduceFunc: "reduceFunc",
 	}
 
 	fmt.Println("after c.insertFunctionCh <- ..")
@@ -234,10 +237,10 @@ func (c *AviaryCoordinator) startNewJob(request *ClerkRequest) {
 	// notify workers about a new job through RPC calls
 	newRequest := CoordinatorRequest{
 		Phase:          MAP,
-		MapFunc:        mapFunc,
-		ReduceFunc:     reduceFunc,
 		DatabaseName:   dbName,
 		CollectionName: collName,
+		Tag:            tag,
+		FunctionID:     functionID,
 	}
 	newReply := CoordinatorReply{}
 

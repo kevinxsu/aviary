@@ -1,8 +1,5 @@
 package aviary
 
-// MongoDB connection string
-const uri = "mongodb://126.0.0.1:27117,127.0.0.1:27118"
-
 // Map functions return a slice of KeyValue.
 type KeyValue struct {
 	Key   string

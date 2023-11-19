@@ -90,7 +90,6 @@ Since we are trying to maximize the usage of fault-tolerance that MongoDB provid
 ```
 
 TODO: not yet decided whether or not it the `aviary` collection should be sharded as well, though thinking about it now, it might be worth doing since then the local AvWorkers can directly write to the primary shard
-
     - but if the AvWorkers directly write to the primary shard, will the balancer fuck things up?
     - need to think a bit harder about this
 

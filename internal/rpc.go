@@ -10,7 +10,11 @@ import (
 	"strconv"
 
 	"github.com/google/uuid"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
+
+// MongoDB connection string
+const uri = "mongodb://126.0.0.1:27117,127.0.0.1:27118"
 
 type Phase = string
 
@@ -53,10 +57,10 @@ func workerSock() string {
 
 type CoordinatorRequest struct {
 	Phase          Phase
-	MapFunc        string
-	ReduceFunc     string
 	DatabaseName   string
 	CollectionName string
+	Tag            string
+	FunctionID     primitive.ObjectID
 }
 
 type CoordinatorReply struct {
@@ -87,9 +91,9 @@ func (c *AviaryCoordinator) CoordinatorCall(request *CoordinatorRequest, reply *
 type ClerkType = string
 
 const (
-	JOB    ClerkType = "JOB"
-	SHOW             = "SHOW"
-	INSERT           = "INSERT"
+	JOB  ClerkType = "JOB"
+	SHOW           = "SHOW"
+	// INSERT           = "INSERT"
 )
 
 type ReplyType = string
@@ -104,10 +108,10 @@ const (
 type ClerkRequest struct {
 	Type           ClerkType
 	ClientID       int
-	MapFunc        string
-	ReduceFunc     string
 	DatabaseName   string
 	CollectionName string
+	Tag            string
+	FunctionID     primitive.ObjectID
 }
 
 type ClerkReply struct {
@@ -124,7 +128,6 @@ func (c *AviaryCoordinator) ClerkRequestHandler(request *ClerkRequest, reply *Cl
 	// show in progress jobs
 	case SHOW:
 		reply.Jobs = c.ShowJobs(request.ClientID)
-		// reply.Message = "OK"
 		reply.Message = OK
 
 	default:
@@ -206,8 +209,8 @@ func (w *AviaryWorker) server() {
 
 func (w *AviaryWorker) CoordinatorRequestHandler(request *CoordinatorRequest, reply *CoordinatorReply) error {
 	fmt.Println("worker entered coordinator request handler")
-	fmt.Println(request)
-	fmt.Println(reply)
+	fmt.Println(*request)
+
 	w.requestCh <- *request
 	fmt.Println("finished sending request over requestCh")
 	reply.Message = "OK"

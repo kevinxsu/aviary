@@ -3,18 +3,28 @@ package main
 import (
 	aviary "aviary/internal"
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"log"
 	"net/rpc"
 	"os"
+	"plugin"
 	"strings"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/gridfs"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
+
+const uri = "mongodb://126.0.0.1:27117,127.0.0.1:27118"
 
 // how the client can interface with aviary through a CLI
 func show_help() {
 	fmt.Println("To start a MapReduce job, your input should look something like this: ")
-	fmt.Printf("\t\t(aviary) ~> begin [your id] [path/to/map.go] [path/to/reduce.go] [database name] [collection name]\n")
+	fmt.Printf("\t\t(aviary) ~> begin [your id] [path/to/funcs.so] [database name] [collection name] [document tag]\n")
 }
 
 func show_show() {
@@ -50,17 +60,59 @@ func ClerkCall(request *aviary.ClerkRequest, reply *aviary.ClerkReply) {
 	}
 }
 
-// reads in local file and converts it into a string
-// TODO: this won't work. need to compile it to a *.so file and
-// store the *.so file into mongodb instead
-//   - but the idea is essentially the same, and we can just store the
-//     *.so as a []byte
-func fileContents(filename string) string {
-	fileBytes, err := os.ReadFile(filename)
+// load the application Map and Reduce functions from a plugin file
+func checkPlugin(filename string) bool {
+	p, err := plugin.Open(filename)
 	if err != nil {
-		log.Fatal("read file error: ", err)
+		log.Fatalf("could not load plugin %v", filename)
 	}
-	return string(fileBytes)
+	_, err = p.Lookup("Map")
+	if err != nil {
+		return false
+	}
+	_, err = p.Lookup("Reduce")
+	if err != nil {
+		return false
+	}
+	return true
+}
+
+// uploads the plugin file to MongoDB GridFS
+func uploadPlugin(filename string, clientID int) primitive.ObjectID {
+	serverAPI := options.ServerAPI(options.ServerAPIVersion1)
+	opts := options.Client().ApplyURI(uri).SetServerAPIOptions(serverAPI)
+	client, err := mongo.Connect(context.TODO(), opts)
+	if err != nil {
+		panic(err)
+	}
+	defer func() {
+		if err = client.Disconnect(context.TODO()); err != nil {
+			panic(err)
+		}
+	}()
+
+	var result bson.M
+	if err := client.Database("admin").RunCommand(context.TODO(), bson.D{{"ping", 1}}).Decode(&result); err != nil {
+		panic(err)
+	}
+	fmt.Println("Aviary Clerk connected to MongoDB!")
+	db := client.Database("db")
+	grid_opts := options.GridFSBucket().SetName("aviaryFuncs")
+	bucket, err := gridfs.NewBucket(db, grid_opts)
+	if err != nil {
+		log.Fatal("GridFS NewBucket error: ", err)
+	}
+	file, err := os.Open(filename)
+	if err != nil {
+		log.Fatal("os.Open error: ", err)
+	}
+
+	uploadOpts := options.GridFSUpload().SetMetadata(bson.D{{"clientID", clientID}})
+	objectID, err := bucket.UploadFromStream(filename, io.Reader(file), uploadOpts)
+	if err != nil {
+		log.Fatal("bucket.UploadFromStream error: ", err)
+	}
+	return objectID
 }
 
 func main() {
@@ -86,19 +138,30 @@ func main() {
 				continue
 			}
 
-			clientID := argv[1]
-			mapFunc := argv[2]
-			reduceFunc := argv[3]
-			dbName := argv[4]
-			collName := argv[5]
+			id := argv[1]
+			clientID := aviary.IHash(id)
+
+			// make sure the *.so file is valid
+			filename := argv[2]
+			if !checkPlugin(filename) {
+				fmt.Printf("WARNING: %s either didnt have correct function types or couldn't be found. Aborting...\n", filename)
+				continue
+			}
+
+			// upload the *.so file to GridFS
+			functionID := uploadPlugin(filename, clientID)
+
+			dbName := argv[3]
+			collName := argv[4]
+			tag := argv[5]
 
 			request := aviary.ClerkRequest{
 				Type:           aviary.JOB,
-				ClientID:       aviary.IHash(clientID),
-				MapFunc:        fileContents(mapFunc),
-				ReduceFunc:     fileContents(reduceFunc),
+				ClientID:       clientID,
 				DatabaseName:   dbName,
 				CollectionName: collName,
+				Tag:            tag,
+				FunctionID:     functionID,
 			}
 			reply := aviary.ClerkReply{}
 			ClerkCall(&request, &reply)
@@ -119,18 +182,31 @@ func main() {
 
 		// quickly insert something
 		case "debug", "d":
-			clientID := "user"
-			mapFunc := "../mrapps/map.go"
-			reduceFunc := "../mrapps/reduce.go"
+
+			id := "user"
+			clientID := aviary.IHash(id)
+			filename := "../mrapps/wc.so"
 			dbName := "db"
 			collName := "coll"
+			tag := "wc"
+
+			// make sure the *.so file is valid
+			if !checkPlugin(filename) {
+				fmt.Printf("WARNING: %s either didnt have correct function types or couldn't be found. Aborting...\n", filename)
+				continue
+			}
+
+			fmt.Printf("about to upload %s to GridFS\n", filename)
+			// upload the *.so file to GridFS
+			functionID := uploadPlugin(filename, clientID)
+
 			request := aviary.ClerkRequest{
 				Type:           aviary.JOB,
-				ClientID:       aviary.IHash(clientID),
-				MapFunc:        fileContents(mapFunc),
-				ReduceFunc:     fileContents(reduceFunc),
+				ClientID:       clientID,
 				DatabaseName:   dbName,
 				CollectionName: collName,
+				Tag:            tag,
+				FunctionID:     functionID,
 			}
 			reply := aviary.ClerkReply{}
 			ClerkCall(&request, &reply)

@@ -71,9 +71,9 @@ func (w *AviaryWorker) mongoConnection(ch chan bool) {
 	if err := client.Database("admin").RunCommand(context.TODO(), bson.D{{"ping", 1}}).Decode(&result); err != nil {
 		panic(err)
 	}
-	fmt.Println("Aviary Worker connected to MongoDB")
+	fmt.Println("Aviary Worker connected to MongoDB!")
 
-	collection := client.Database("MyDatabase").Collection("MyCollection")
+	collection := client.Database("db").Collection("coll")
 	ch <- true
 	for {
 		select {
@@ -99,14 +99,12 @@ func (w *AviaryWorker) mongoConnection(ch chan bool) {
 // call in goroutine?
 // does the map function
 func (w *AviaryWorker) Map(request CoordinatorRequest) {
-	mapFunc := request.MapFunc
-	reduceFunc := request.ReduceFunc
-	dbName := request.DatabaseName
-	collName := request.CollectionName
-	fmt.Println(mapFunc)
-	fmt.Println(reduceFunc)
-	fmt.Println(dbName)
-	fmt.Println(collName)
+	/*
+		mapFunc := request.MapFunc
+		reduceFunc := request.ReduceFunc
+		dbName := request.DatabaseName
+		collName := request.CollectionName
+	*/
 
 	// TODO: write a better struct to encapsulate db.Find() queries
 	fmt.Println("about to send bson.D{{}} through findCh")
