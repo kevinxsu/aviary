@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/gridfs"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -78,7 +79,11 @@ func main() {
 
 	fmt.Println("GOING OT TRY TO DOWNLOAD FILE FROM GRIDFS")
 
-	downloadStream, err := bucket.OpenDownloadStream(objectID)
+	oid, _ := primitive.ObjectIDFromHex("655b18d4a41f8227cf117fac")
+
+	// downloadStream, err := bucket.OpenDownloadStream(objectID)
+
+	downloadStream, err := bucket.OpenDownloadStream(oid)
 	if err != nil {
 		panic(err)
 	}

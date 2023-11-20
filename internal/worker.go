@@ -11,6 +11,7 @@ import (
 	"net/rpc"
 	"os"
 	"plugin"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -32,6 +33,9 @@ type AviaryWorker struct {
 	findCh     chan bson.D             // channel for worker to find stuff? (NOT SURE IF THIS EVEN WORKS OR IS THE BEST WAY)
 	downloadCh chan primitive.ObjectID // download
 	startCh    chan bool
+
+	// channel to upload intermediate file
+	intermediateCh chan string
 
 	mapf    func(string, string) []KeyValue
 	reducef func(string, []string) string
@@ -218,22 +222,6 @@ func (w *AviaryWorker) Start() {
 		switch job.Phase {
 		case MAP:
 			fmt.Println("(Aviary Worker) case: MAP")
-
-			/*
-				type Job struct {
-					JobID int
-					State JobState
-					Completed []int
-					Ongoing []int
-					mu sync.Mutex
-
-					DatabaseName string
-					CollectionName string
-					Tag string
-					FunctionId primitive.ObjectID
-				}
-			*/
-
 			// just create a new connection for now
 			serverAPI := options.ServerAPI(options.ServerAPIVersion1)
 			opts := options.Client().ApplyURI(uri).SetServerAPIOptions(serverAPI)
@@ -271,10 +259,10 @@ func (w *AviaryWorker) Start() {
 				panic(err)
 			}
 
-			for _, result := range results {
-				res, _ := json.Marshal(result)
-				fmt.Println(string(res))
-			}
+			// for _, result := range results {
+			// 	res, _ := json.Marshal(result)
+			// 	fmt.Println(string(res))
+			// }
 
 			intermediates := make([]KeyValue, 0)
 
@@ -289,7 +277,100 @@ func (w *AviaryWorker) Start() {
 
 			// fmt.Println(len(intermediates))
 			// fmt.Println(intermediates[0])
-			fmt.Println(intermediates)
+			// fmt.Println(intermediates)
+
+			// save the intermediates into a file and then insert into GridFS
+			// unique filename: worker UUID + ??
+			/*
+				filename := w.WorkerID.String() + "-" + strconv.Itoa(job.Partition) + ".json"
+
+				tempFile, err := os.Create(filename)
+
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				// write all of the intermediates to the tempfile
+				enc := json.NewEncoder(tempFile)
+				for _, kv := range intermediates {
+					err := enc.Encode(kv)
+					if err != nil {
+						log.Fatal(err)
+					}
+				}
+
+				err = tempFile.Close()
+				if err != nil {
+					log.Fatal(err)
+				}
+			*/
+
+			// TODO: fix hardcode
+			nreduce := 3
+			intermediate_files := make([][]KeyValue, nreduce)
+
+			// sort into their bins
+			for _, kv := range intermediates {
+				ikey := ihash(kv.Key) % nreduce
+				intermediate_files[ikey] = append(intermediate_files[ikey], kv)
+			}
+
+			inter_filenames := []string{"inter_map_1.json", "inter_map_2.json", "inter_map_3.json"}
+
+			obj_ids := make([]primitive.ObjectID, 0)
+
+			for i, name := range inter_filenames {
+				tempFile, err := os.Create(name)
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				enc := json.NewEncoder(tempFile)
+				for _, kv := range intermediate_files[i] {
+					err = enc.Encode(&kv)
+					if err != nil {
+						log.Fatal(err)
+					}
+				}
+
+				/* open db connection & upload */
+				grid_opts := options.GridFSBucket().SetName("aviaryIntermediates")
+				bucket, err := gridfs.NewBucket(db, grid_opts)
+				if err != nil {
+					log.Fatal("GridFS NewBucket error: ", err)
+				}
+				uploadOpts := options.GridFSUpload().SetMetadata(bson.D{{}})
+				// objectID, err := bucket.UploadFromStream(filename, io.Reader(tempFile), uploadOpts)
+				objectID, err := bucket.UploadFromStream(name, io.Reader(tempFile), uploadOpts)
+				if err != nil {
+					log.Fatal("bucket.UploadFromStream error: ", err)
+				}
+
+				obj_ids = append(obj_ids, objectID)
+			}
+
+			fmt.Printf("obj_ids: %v\n", obj_ids)
+
+			// tempFile, err = os.Open(filename)
+			// if err != nil {
+			// 	log.Fatal(err)
+			// }
+
+			/************************************************************************/
+
+			// once map task is done, worker needs to notify coordinator
+			request := WorkerRequest{
+				WorkerID:    w.WorkerID,
+				WorkerState: MAP_DONE,
+				OIDs:        obj_ids,
+			}
+
+			reply := WorkerReply{}
+
+			// go?
+			WorkerCall(&request, &reply)
+
+			/************************************************************************/
 
 		case REDUCE:
 			fmt.Println("(Aviary Worker) case: REDUCE")
@@ -299,52 +380,72 @@ func (w *AviaryWorker) Start() {
 	}
 }
 
-/*
-func (w *AviaryWorker) applyMap() []string {
-	// create a slice to store intermediate files
-	intermediateFiles := make([]string, nReduce)
-	// write the data into files, and append the filename into slice for returnin later
-	for reduceTaskID, keyValueSlice := range kvmapping {
-		tempFile, err := ioutil.TempFile("./", getRandomName())
-		if err != nil {
-			log.Fatal(err)
-			panic("Worker.go: ApplyMap(): Error in creating temp file!\n")
-		}
-		enc := json.NewEncoder(tempFile)
-		for _, kv := range keyValueSlice {
-			// write each key-value pair from the slice into the temporary file
-			err := enc.Encode(kv)
-			if err != nil {
-				log.Fatal(err)
-				panic("Worker.go: ApplyMap(): Error in writing to temp file!\n")
-			}
-		}
-
-		// atomically rename the tmpFile
-		intermediateFileName := fmt.Sprintf("mr-%d-%d", mapTaskID, reduceTaskID)
-		os.Rename(tempFile.Name(), intermediateFileName)
-
-		// close the file
-		err = tempFile.Close()
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		// add the filename into our intermediate files
-		intermediateFiles = append(intermediateFiles, intermediateFileName)
+// TODO: for workers on startup, workers need to send an RPC to the coordinator
+// and provide the coordinator with it's HTTP endpoint
+func workerCall(rpcname string, args interface{}, reply interface{}) bool {
+	c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
+	if err != nil {
+		log.Fatal("dialing: ", err)
 	}
-	return intermediateFiles
+	defer c.Close()
+
+	err = c.Call(rpcname, args, reply)
+	if err == nil {
+		return true
+	}
+	fmt.Printf("ASDASDASD error in workerCall: %v\n", err)
+	return false
 }
 
-func (w *AviaryWorker) applyReduce(intermediates []string) string {
+// calls the Coordinator's WorkerRequestHandler
+func WorkerCall(request *WorkerRequest, reply *WorkerReply) {
+	fmt.Println("Entered WorkerCall")
+	fmt.Println(*request)
+
+	for {
+		ok := workerCall("AviaryCoordinator.WorkerRequestHandler", request, reply)
+		if ok {
+			fmt.Println("Coordinator replied OK to Worker RPC")
+			return
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+// potential issue: how does coordinator broadcast to all workers?
+// dont think we can reuse the same port
+// but similar to coord, start a thread that listens for RPCs from coordinator
+func (w *AviaryWorker) server() {
+	rpc.Register(w)
+	rpc.HandleHTTP()
+	// sockname := coordinatorSock()
+	sockname := workerSock()
+	os.Remove(sockname)
+
+	var l net.Listener
+	var err error
+
+	for i := 1235; ; i++ {
+		l, err = net.Listen("tcp", ":"+strconv.Itoa(i))
+		if err == nil {
+			w.port = i
+			break
+		}
+	}
+	fmt.Printf("(worker) server(): found good port: %d\n", w.port)
+	go http.Serve(l, nil)
+}
+
+/*
+func (w *AviaryWorker) ApplyReduce() {
 	tempFile, err := ioutil.TempFile("./", getRandomName())
 	defer tempFile.Close()
 	if err != nil {
 		log.Fatal(err)
+		panic("Worker.go: ApplyReduce(): Error in creating temp file!\n")
 	}
 
 	intermediate := []KeyValue{}
-
 	// iterate over all intermediate files
 	for _, filename := range filenames {
 		file, err := os.Open(filename)
@@ -388,67 +489,135 @@ func (w *AviaryWorker) applyReduce(intermediates []string) string {
 
 	return filename
 }
+
 */
-
-// TODO: for workers on startup, workers need to send an RPC to the coordinator
-// and provide the coordinator with it's HTTP endpoint
-func workerCall(rpcname string, args interface{}, reply interface{}) bool {
-	c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
-	if err != nil {
-		log.Fatal("dialing: ", err)
-	}
-	defer c.Close()
-
-	err = c.Call(rpcname, args, reply)
-	if err == nil {
-		return true
-	}
-	fmt.Printf("ASDASDASD error in workerCall: %v\n", err)
-	return false
-}
-
-// calls the Coordinator's WorkerRequestHandler
-func WorkerCall(request *WorkerRequest, reply *WorkerReply) {
-	for {
-		ok := workerCall("AviaryCoordinator.WorkerRequestHandler", request, reply)
-		if ok {
-			return
-		}
-		time.Sleep(time.Second)
-	}
-}
-
-// potential issue: how does coordinator broadcast to all workers?
-// dont think we can reuse the same port
-// but similar to coord, start a thread that listens for RPCs from coordinator
-func (w *AviaryWorker) server() {
-	rpc.Register(w)
-	rpc.HandleHTTP()
-	// sockname := coordinatorSock()
-	sockname := workerSock()
-	os.Remove(sockname)
-
-	var l net.Listener
-	var err error
-
-	for i := 1235; ; i++ {
-		l, err = net.Listen("tcp", ":"+strconv.Itoa(i))
-		if err == nil {
-			w.port = i
-			break
-		}
-	}
-	fmt.Printf("(worker) server(): found good port: %d\n", w.port)
-	go http.Serve(l, nil)
-}
 
 // Worker's RPC handler for Coordinator notifications
 func (w *AviaryWorker) CoordinatorRequestHandler(request *CoordinatorRequest, reply *CoordinatorReply) error {
 	fmt.Println("(worker) Entered CoordinatorRequestHandler")
 	fmt.Println(*request)
+	switch request.Phase {
+	case MAP:
+		fmt.Println("(worker) case: MAP")
+		w.requestCh <- *request
+		// TODO: bug, immediate return of nil !=> request processed correctly
+		reply.Message = OK
+		return nil
 
-	w.requestCh <- *request
-	fmt.Println("after w.requestCh <- *request ")
-	reply.Message = OK
-	return nil
+	case REDUCE:
+		fmt.Println("(worker) case: REDUCE")
+
+		// files to download from gridfs
+		oids := request.OIDs
+		fmt.Printf("oids: %v\n", oids)
+
+		keyvalues := make([]KeyValue, 0)
+
+		// download the file contents
+		for _, oid := range oids {
+			// start new context
+			serverAPI := options.ServerAPI(options.ServerAPIVersion1)
+			opts := options.Client().ApplyURI(uri).SetServerAPIOptions(serverAPI)
+			client, err := mongo.Connect(context.TODO(), opts)
+			if err != nil {
+				panic(err)
+			}
+			defer func() {
+				if err = client.Disconnect(context.TODO()); err != nil {
+					panic(err)
+				}
+			}()
+			var result bson.M
+			if err := client.Database("admin").RunCommand(context.TODO(), bson.D{{"ping", 1}}).Decode(&result); err != nil {
+				panic(err)
+			}
+			fmt.Println("Aviary Worker connected to MongoDB!")
+			db := client.Database(request.DatabaseName)
+			// collection := db.Collection(job.CollectionName)
+
+			// grid_opts := options.GridFSBucket().SetName("aviaryIntermediates")
+			grid_opts := options.GridFSBucket().SetName("aviaryIntermediates.files")
+			bucket, err := gridfs.NewBucket(db, grid_opts)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			downloadStream, err := bucket.OpenDownloadStream(oid)
+			if err != nil {
+				log.Fatal(err)
+				panic(err)
+			}
+
+			tmpFilename := "tmp" + w.WorkerID.String() + ".json"
+			file, err := os.Create(tmpFilename)
+			if err != nil {
+				log.Fatal(err)
+				panic(err)
+			}
+
+			_, err = io.Copy(file, downloadStream)
+			if err != nil {
+				log.Fatal(err)
+				panic(err)
+			}
+
+			dec := json.NewDecoder(file)
+			for {
+				var kv KeyValue
+				if err := dec.Decode(&kv); err != nil {
+					log.Fatal(err)
+					break
+				}
+				keyvalues = append(keyvalues, kv)
+			}
+
+			// bytes, err = ioutil.ReadAll(file)
+			// if err != nil {
+			// 	panic(err)
+			// }
+			// json.Unmarshal()
+
+			defer downloadStream.Close()
+			defer file.Close()
+		}
+
+		// []
+		fmt.Println(keyvalues)
+
+		// sort
+		// kva filled with the values of the first intermediate, need to sort
+		// "shuffle" step
+		sort.Sort(ByKey(keyvalues))
+
+		filename := "reduce" + strconv.Itoa(request.Partition) + ".json"
+		tempFile, err := os.Create(filename)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer tempFile.Close()
+
+		// now combine the values of the same keys
+		i := 0
+		for i < len(keyvalues) {
+			j := i + 1
+			for j < len(keyvalues) && keyvalues[j].Key == keyvalues[i].Key {
+				j++
+			}
+			coalescedValues := []string{}
+			for k := i; k < j; k++ {
+				coalescedValues = append(coalescedValues, keyvalues[k].Value)
+			}
+			reducefOutput := w.reducef(keyvalues[i].Key, coalescedValues)
+			// print it into the file
+			fmt.Fprintf(tempFile, "%v %v\n", keyvalues[i].Key, reducefOutput)
+			i = j
+		}
+
+		reply.Reply = OK
+		return nil
+
+	default:
+		reply.Reply = OK
+		return nil
+	}
 }

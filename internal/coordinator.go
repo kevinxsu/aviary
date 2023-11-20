@@ -54,6 +54,13 @@ type AviaryCoordinator struct {
 	activeConnections map[UUID]int // slice of active connections to workers
 
 	insertFunctionCh chan MongoFunction
+
+	// oids for intermediate files in GridFS
+	Files [][]primitive.ObjectID
+	// FileNames []string
+
+	// placeholder
+	count int
 }
 
 // creates an Aviary Coordinator
@@ -69,6 +76,12 @@ func MakeCoordinator() *AviaryCoordinator {
 	c.activeConnections = make(map[UUID]int)
 
 	c.insertFunctionCh = make(chan MongoFunction)
+
+	// invariant count = len(c.files)
+	c.count = 0
+	// c.Files = make([]primitive.ObjectID, 0)
+	c.Files = make([][]primitive.ObjectID, 3)
+	// c.FileNames = make([]string, 0)
 
 	// establish connection to mongodb first before listening for RPCs
 	ch := make(chan bool)
@@ -263,11 +276,12 @@ func (c *AviaryCoordinator) startNewJob(request *ClerkRequest) {
 // notify the worker at the given port about the new job
 func (ac *AviaryCoordinator) notifyWorker(port int, request *CoordinatorRequest) {
 	fmt.Println("(coord) Entered notifyWorker")
+	fmt.Println(request)
 	reply := CoordinatorReply{}
 
 	c, err := rpc.DialHTTP("tcp", ":"+strconv.Itoa(port))
 	if err != nil {
-		log.Fatal("dialign: ", err)
+		log.Fatal("dialing: ", err)
 	}
 	defer c.Close()
 	err = c.Call("AviaryWorker.CoordinatorRequestHandler", request, &reply)

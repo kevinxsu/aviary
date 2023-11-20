@@ -19,19 +19,13 @@ const uri = "mongodb://126.0.0.1:27117,127.0.0.1:27118"
 type Phase = string
 
 const (
-	INIT   = "INIT"
-	MAP    = "MAP"
-	REDUCE = "REDUCE"
-	IDLE   = "IDLE"
+	INIT        = "INIT"
+	MAP         = "MAP"
+	MAP_DONE    = "MAP_DONE"
+	REDUCE      = "REDUCE"
+	REDUCE_DONE = "REDUCE_DONE"
+	IDLE        = "IDLE"
 )
-
-type WorkerState struct {
-	JobID    uuid.UUID
-	WorkerID uuid.UUID
-	Action   Phase
-	Key      interface{}
-	Value    interface{}
-}
 
 type Request struct {
 	WorkerRequest string
@@ -62,16 +56,15 @@ type CoordinatorRequest struct {
 	Tag            string
 	FunctionID     primitive.ObjectID
 	Partition      int
+
+	// intermediate files in gridfs
+	OIDs []primitive.ObjectID
 }
 
 type CoordinatorReply struct {
+	Reply   string
 	Message string
 }
-
-// func _notifyWorkers(rpcname string, args interface{}, reply interface{}) bool {
-// 	for _, port := range
-// 	c, err :=
-// }
 
 // TODO: add slice of active connections to coordinator and concurrently notify all of them
 func (ac *AviaryCoordinator) notifyWorkers(rpcname string, args interface{}, reply interface{}) bool {
@@ -154,10 +147,22 @@ func (c *AviaryCoordinator) ClerkRequestHandler(request *ClerkRequest, reply *Cl
 
 /* struct defs and functions for Coordinator to receive RPCs from Worker */
 
+type WorkerState struct {
+	JobID    uuid.UUID
+	WorkerID uuid.UUID
+	Action   Phase
+	Key      interface{}
+	Value    interface{}
+}
+
 type WorkerRequest struct {
 	WorkerID    UUID
 	WorkerState Phase
 	WorkerPort  int // if INIT Phase, should only be WorkerID, WorkerState, and WorkerPort
+
+	// the id of the intermediate data from Map phase (stored in GridFS)
+	// ObjectID primitive.ObjectID
+	OIDs []primitive.ObjectID
 }
 
 type WorkerReply struct {
@@ -177,6 +182,54 @@ func (c *AviaryCoordinator) WorkerRequestHandler(request *WorkerRequest, reply *
 		reply.Reply = OK
 
 		fmt.Println(c.activeConnections)
+
+	case MAP_DONE:
+		fmt.Printf("(coord) WorkerRequestHandler: case MAP_DONE.")
+		// incr count
+		c.count++
+
+		// append to c.Files
+		// c.Files = append(c.Files, request.OIDs...)
+
+		c.Files[0] = append(c.Files[0], request.OIDs...)
+		c.Files[1] = append(c.Files[1], request.OIDs...)
+		c.Files[2] = append(c.Files[2], request.OIDs...)
+
+		// start reducing
+		if c.count == 3 {
+			// TODO:
+			// go func(c *AviaryCoordinator) {
+			fmt.Println("entered anonymous function")
+			i := 0
+			for _, port := range c.activeConnections {
+				// oids := make([]primitive.ObjectID, 0)
+				// TODO: use regex
+				// for j := 0; j < len(c.Files); j++ {
+				// 	// 10
+				// 	if c.FileNames[j][10] == i {
+				// 		oids = append(oids, c.Files[j])
+				// 	}
+				// }
+
+				// notify workers about request jobs
+				newRequest := CoordinatorRequest{
+					Phase:          REDUCE,
+					DatabaseName:   "db",
+					CollectionName: "coll",
+					Tag:            "wc",
+					Partition:      i,
+					OIDs:           c.Files[i],
+				}
+				c.notifyWorker(port, &newRequest)
+				i++
+			}
+			// }(c)
+		}
+
+		reply.Reply = OK
+
+	case REDUCE_DONE:
+		fmt.Printf("(coord) WorkerRequestHandler: case REDUCE_DONE.")
 
 	default:
 	}

@@ -41,7 +41,7 @@ type WorkerState struct {
 
 // note: this was just to mess around with the mongodb go driver
 
-func _main() {
+func main() {
 	// Use the SetServerAPIOptions() method to set the Stable API version to 1
 	serverAPI := options.ServerAPI(options.ServerAPIVersion1)
 	opts := options.Client().ApplyURI(uri).SetServerAPIOptions(serverAPI)

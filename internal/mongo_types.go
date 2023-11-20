@@ -8,6 +8,6 @@ type InputData struct {
 }
 
 type IntermediateData struct {
-	Tag       string
-	Partition int
+	Key          string
+	ReduceTaskID int
 }

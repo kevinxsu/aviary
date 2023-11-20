@@ -3,6 +3,8 @@ package aviary
 import (
 	"fmt"
 	"hash/fnv"
+	"math/rand"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -31,6 +33,12 @@ func IHash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
+func ihash(key string) int {
+	h := fnv.New32a()
+	h.Write([]byte(key))
+	return int(h.Sum32() & 0x7fffffff)
+}
+
 // pretty print the jobs (no locking)
 func (c *AviaryCoordinator) _prettyPrintJobs() {
 	for clientID, jobs := range c.jobs {
@@ -39,4 +47,23 @@ func (c *AviaryCoordinator) _prettyPrintJobs() {
 			fmt.Printf("\t%v\n", job)
 		}
 	}
+}
+
+// random string generator for temporary file names
+func getRandomName() string {
+	rand.Seed(time.Now().UnixNano())
+	digits := "0123456789"
+	all := "ABCDEFGHIJKLMNOPQRSTUVWXYZ" +
+		"abcdefghijklmnopqrstuvwxyz" +
+		digits
+	length := 8
+	buf := make([]byte, length)
+	buf[0] = digits[rand.Intn(len(digits))]
+	for i := 1; i < length; i++ {
+		buf[i] = all[rand.Intn(len(all))]
+	}
+	rand.Shuffle(len(buf), func(i, j int) {
+		buf[i], buf[j] = buf[j], buf[i]
+	})
+	return string(buf)
 }
