@@ -289,7 +289,7 @@ func (w *AviaryWorker) Start() {
 
 			// fmt.Println(len(intermediates))
 			// fmt.Println(intermediates[0])
-			// fmt.Println(intermediates)
+			fmt.Println(intermediates)
 
 		case REDUCE:
 			fmt.Println("(Aviary Worker) case: REDUCE")
@@ -298,6 +298,97 @@ func (w *AviaryWorker) Start() {
 		}
 	}
 }
+
+/*
+func (w *AviaryWorker) applyMap() []string {
+	// create a slice to store intermediate files
+	intermediateFiles := make([]string, nReduce)
+	// write the data into files, and append the filename into slice for returnin later
+	for reduceTaskID, keyValueSlice := range kvmapping {
+		tempFile, err := ioutil.TempFile("./", getRandomName())
+		if err != nil {
+			log.Fatal(err)
+			panic("Worker.go: ApplyMap(): Error in creating temp file!\n")
+		}
+		enc := json.NewEncoder(tempFile)
+		for _, kv := range keyValueSlice {
+			// write each key-value pair from the slice into the temporary file
+			err := enc.Encode(kv)
+			if err != nil {
+				log.Fatal(err)
+				panic("Worker.go: ApplyMap(): Error in writing to temp file!\n")
+			}
+		}
+
+		// atomically rename the tmpFile
+		intermediateFileName := fmt.Sprintf("mr-%d-%d", mapTaskID, reduceTaskID)
+		os.Rename(tempFile.Name(), intermediateFileName)
+
+		// close the file
+		err = tempFile.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		// add the filename into our intermediate files
+		intermediateFiles = append(intermediateFiles, intermediateFileName)
+	}
+	return intermediateFiles
+}
+
+func (w *AviaryWorker) applyReduce(intermediates []string) string {
+	tempFile, err := ioutil.TempFile("./", getRandomName())
+	defer tempFile.Close()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	intermediate := []KeyValue{}
+
+	// iterate over all intermediate files
+	for _, filename := range filenames {
+		file, err := os.Open(filename)
+		defer file.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+		dec := json.NewDecoder(file)
+		for {
+			var kv KeyValue
+			if err := dec.Decode(&kv); err != nil {
+				break
+			}
+			intermediate = append(intermediate, kv)
+		}
+	}
+
+	// kva filled with the values of the first intermediate, need to sort
+	// "shuffle" step
+	sort.Sort(ByKey(intermediate))
+
+	// now combine the values of the same keys
+	i := 0
+	for i < len(intermediate) {
+		j := i + 1
+		for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
+			j++
+		}
+		coalescedValues := []string{}
+		for k := i; k < j; k++ {
+			coalescedValues = append(coalescedValues, intermediate[k].Value)
+		}
+		reducefOutput := w.reducef(intermediate[i].Key, coalescedValues)
+		// print it into the file
+		fmt.Fprintf(tempFile, "%v %v\n", intermediate[i].Key, reducefOutput)
+		i = j
+	}
+
+	filename := fmt.Sprintf("mr-out-%d", taskID)
+	os.Rename(tempFile.Name(), filename)
+
+	return filename
+}
+*/
 
 // TODO: for workers on startup, workers need to send an RPC to the coordinator
 // and provide the coordinator with it's HTTP endpoint

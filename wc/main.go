@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -25,29 +26,58 @@ func main() {
 		log.Fatal(err)
 	}
 	fileContents := string(fileBytes)
-	// fileSlice := strings.Fields(fileContents)
+	fileSlice := strings.Fields(fileContents)
 
-	// gather the InputData
-	// TODO: fix the string partitioning
 	documents := []interface{}{}
-	for i := 0; i < len(fileContents); i += 500 {
+	for i := 0; i < len(fileSlice); i += 500 {
 		var data aviary.InputData
-
-		if i+500 >= len(fileContents) {
+		if i+500 >= len(fileSlice) {
+			s := ""
+			for j := i; j < len(fileSlice); j++ {
+				s = s + " " + fileSlice[j]
+			}
 			data = aviary.InputData{
 				Tag:       "wc",
 				Partition: rand.Intn(3),
-				Contents:  fileContents[i:],
+				Contents:  s,
 			}
 		} else {
+			s := ""
+			for j := i; j < i+500; j++ {
+				s = s + " " + fileSlice[j]
+			}
 			data = aviary.InputData{
 				Tag:       "wc",
 				Partition: rand.Intn(3),
-				Contents:  fileContents[i : i+500],
+				Contents:  s,
 			}
 		}
 		documents = append(documents, data)
 	}
+
+	/*
+		// gather the InputData
+		// TODO: fix the string partitioning
+		documents := []interface{}{}
+		for i := 0; i < len(fileContents); i += 500 {
+			var data aviary.InputData
+
+			if i+500 >= len(fileContents) {
+				data = aviary.InputData{
+					Tag:       "wc",
+					Partition: rand.Intn(3),
+					Contents:  fileContents[i:],
+				}
+			} else {
+				data = aviary.InputData{
+					Tag:       "wc",
+					Partition: rand.Intn(3),
+					Contents:  fileContents[i : i+500],
+				}
+			}
+			documents = append(documents, data)
+		}
+	*/
 
 	// batch insert into MongoDB
 	serverAPI := options.ServerAPI(options.ServerAPIVersion1)
