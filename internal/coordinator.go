@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/rpc"
+	"strconv"
 	"sync"
 	"time"
 
@@ -225,28 +227,52 @@ func (c *AviaryCoordinator) startNewJob(request *ClerkRequest) {
 		Tag:            tag,
 		FunctionID:     functionID,
 	}
+
 	// insert the new job into the client's list of jobs
 	c.jobs[clientID] = append(c.jobs[clientID], newJob)
 	c._prettyPrintJobs()
 
-	// notify workers about a new job through RPC calls
-	newRequest := CoordinatorRequest{
-		Phase:          MAP,
-		DatabaseName:   dbName,
-		CollectionName: collName,
-		Tag:            tag,
-		FunctionID:     functionID,
+	i := 0
+	for _, port := range c.activeConnections {
+
+		// notify workers about a new job through RPC calls
+		newRequest := CoordinatorRequest{
+			Phase:          MAP,
+			DatabaseName:   dbName,
+			CollectionName: collName,
+			Tag:            tag,
+			FunctionID:     functionID,
+			Partition:      i,
+		}
+		go c.notifyWorker(port, &newRequest)
+		i++
 	}
-	newReply := CoordinatorReply{}
 
-	// maybe call as goroutine?
-	err := c.CoordinatorCall(&newRequest, &newReply)
+	// // maybe call as goroutine?
+	// err := c.CoordinatorCall(&newRequest, &newReply)
 
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+
+	// if newReply.Message != "OK" {
+	// 	log.Fatal("CoordinatorCall RPC to Worker Reply was not OK")
+	// }
+}
+
+// notify the worker at the given port about the new job
+func (ac *AviaryCoordinator) notifyWorker(port int, request *CoordinatorRequest) {
+	fmt.Println("(coord) Entered notifyWorker")
+	reply := CoordinatorReply{}
+
+	c, err := rpc.DialHTTP("tcp", ":"+strconv.Itoa(port))
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("dialign: ", err)
 	}
-
-	if newReply.Message != "OK" {
-		log.Fatal("CoordinatorCall RPC to Worker Reply was not OK")
+	defer c.Close()
+	err = c.Call("AviaryWorker.CoordinatorRequestHandler", request, &reply)
+	if err != nil {
+		log.Fatal("err in notifyWorker: ", err)
 	}
+	// return err
 }

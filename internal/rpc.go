@@ -61,6 +61,7 @@ type CoordinatorRequest struct {
 	CollectionName string
 	Tag            string
 	FunctionID     primitive.ObjectID
+	Partition      int
 }
 
 type CoordinatorReply struct {
@@ -91,16 +92,6 @@ func (ac *AviaryCoordinator) notifyWorkers(rpcname string, args interface{}, rep
 		}
 	}
 	return true
-
-	// c, err := rpc.DialHTTP("tcp", ":1235")
-	// if err != nil {
-	// 	// TODO: if the worker doesn't exist, the coordinator shouldnt crash
-	// 	log.Fatal("dialing: ", err)
-	// }
-	// defer c.Close()
-	// err = c.Call(rpcname, args, reply)
-
-	// return err == nil
 }
 
 // TODO:

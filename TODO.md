@@ -44,3 +44,8 @@
   - could try to leverage MongoDB's sharding policies and shard balancer, but need to first better understand MongoDB sharding
 - [] Run an actual MapReduce job to show proof-of-concept
 - [] Refactor Coordinator to have Client Contexts (to maintain db connection)
+
+## BUGS
+
+- [] segfault in aviaryworker when clerk gets `d` 3 times in a row for multiple workers
+- [] even if worker dies, coordinator still might try to send a task to it (need to address this)

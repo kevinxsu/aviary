@@ -2,6 +2,7 @@ package aviary
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -36,6 +37,7 @@ type AviaryWorker struct {
 	reducef func(string, []string) string
 
 	port int // the worker's port
+
 }
 
 // main/aviaryworker.go calls this function
@@ -231,6 +233,63 @@ func (w *AviaryWorker) Start() {
 					FunctionId primitive.ObjectID
 				}
 			*/
+
+			// just create a new connection for now
+			serverAPI := options.ServerAPI(options.ServerAPIVersion1)
+			opts := options.Client().ApplyURI(uri).SetServerAPIOptions(serverAPI)
+			client, err := mongo.Connect(context.TODO(), opts)
+			if err != nil {
+				panic(err)
+			}
+
+			defer func() {
+				if err = client.Disconnect(context.TODO()); err != nil {
+					panic(err)
+				}
+			}()
+
+			var result bson.M
+			if err := client.Database("admin").RunCommand(context.TODO(), bson.D{{"ping", 1}}).Decode(&result); err != nil {
+				panic(err)
+			}
+			fmt.Println("Aviary Worker connected to MongoDB!")
+
+			db := client.Database(job.DatabaseName)
+			collection := db.Collection(job.CollectionName)
+
+			// filter by partition number
+			filter := bson.D{{"partition", job.Partition}}
+
+			// find the stuff
+			cursor, err := collection.Find(context.TODO(), filter)
+			if err != nil {
+				panic(err)
+			}
+
+			var results []InputData
+			if err = cursor.All(context.TODO(), &results); err != nil {
+				panic(err)
+			}
+
+			for _, result := range results {
+				res, _ := json.Marshal(result)
+				fmt.Println(string(res))
+			}
+
+			intermediates := make([]KeyValue, 0)
+
+			for _, result := range results {
+				res, _ := json.Marshal(result)
+				contents := string(res)
+
+				// intermediate has type []KeyValue
+				intermediate := w.mapf("", contents)
+				intermediates = append(intermediates, intermediate...)
+			}
+
+			// fmt.Println(len(intermediates))
+			// fmt.Println(intermediates[0])
+			// fmt.Println(intermediates)
 
 		case REDUCE:
 			fmt.Println("(Aviary Worker) case: REDUCE")
