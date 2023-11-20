@@ -43,3 +43,4 @@
 - [] Figure out how intermediate data shuffle should be done
   - could try to leverage MongoDB's sharding policies and shard balancer, but need to first better understand MongoDB sharding
 - [] Run an actual MapReduce job to show proof-of-concept
+- [] Refactor Coordinator to have Client Contexts (to maintain db connection)

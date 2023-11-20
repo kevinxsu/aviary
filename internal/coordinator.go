@@ -49,6 +49,8 @@ type AviaryCoordinator struct {
 	insertCh chan bson.D
 	findCh   chan bson.D
 
+	activeConnections map[UUID]int // slice of active connections to workers
+
 	insertFunctionCh chan MongoFunction
 }
 
@@ -61,6 +63,8 @@ func MakeCoordinator() *AviaryCoordinator {
 
 	c.insertCh = make(chan bson.D)
 	c.findCh = make(chan bson.D)
+
+	c.activeConnections = make(map[UUID]int)
 
 	c.insertFunctionCh = make(chan MongoFunction)
 
@@ -147,17 +151,18 @@ func (c *AviaryCoordinator) mongoConnection(ch chan bool) {
 			}
 			fmt.Printf("Coordinator inserted %v with id\n", res, res.InsertedID)
 
-		case function := <-c.insertFunctionCh:
-			fmt.Println("Case: function := <-c.insertFunctionCh")
+		// no longer in use: Clerk uploads to GridFS first
+		// case function := <-c.insertFunctionCh:
+		// 	fmt.Println("Case: function := <-c.insertFunctionCh")
 
-			ctxt, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
+		// 	ctxt, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// 	defer cancel()
 
-			res, err := functions.InsertOne(ctxt, function)
-			if err != nil {
-				log.Fatal("mongo insert function error: ", err)
-			}
-			fmt.Printf("Coordinator inserted %v\n", res)
+		// 	res, err := functions.InsertOne(ctxt, function)
+		// 	if err != nil {
+		// 		log.Fatal("mongo insert function error: ", err)
+		// 	}
+		// 	fmt.Printf("Coordinator inserted %v\n", res)
 
 		case filter := <-c.findCh:
 			fmt.Println("Case: filter := <-c.findCh")
@@ -223,16 +228,6 @@ func (c *AviaryCoordinator) startNewJob(request *ClerkRequest) {
 	// insert the new job into the client's list of jobs
 	c.jobs[clientID] = append(c.jobs[clientID], newJob)
 	c._prettyPrintJobs()
-
-	// insert the map/reduce functions into mongodb before notifying workers
-	c.insertFunctionCh <- MongoFunction{
-		ClientID:   clientID,
-		JobID:      jobID,
-		MapFunc:    "mapFunc",
-		ReduceFunc: "reduceFunc",
-	}
-
-	fmt.Println("after c.insertFunctionCh <- ..")
 
 	// notify workers about a new job through RPC calls
 	newRequest := CoordinatorRequest{

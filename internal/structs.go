@@ -1,6 +1,8 @@
 package aviary
 
 type InputData struct {
-	Tag      string
-	Contents []string
+	Tag       string
+	Partition int
+	Contents  string
+	// Contents []string
 }

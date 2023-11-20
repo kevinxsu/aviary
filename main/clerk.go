@@ -107,6 +107,7 @@ func uploadPlugin(filename string, clientID int) primitive.ObjectID {
 		log.Fatal("os.Open error: ", err)
 	}
 
+	defer file.Close()
 	uploadOpts := options.GridFSUpload().SetMetadata(bson.D{{"clientID", clientID}})
 	objectID, err := bucket.UploadFromStream(filename, io.Reader(file), uploadOpts)
 	if err != nil {

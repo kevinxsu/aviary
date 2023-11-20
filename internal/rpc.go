@@ -67,24 +67,50 @@ type CoordinatorReply struct {
 	Message string
 }
 
-func notifyWorkers(rpcname string, args interface{}, reply interface{}) bool {
-	c, err := rpc.DialHTTP("tcp", ":1235")
-	if err != nil {
-		// TODO: if the worker doesn't exist, the coordinator shouldnt crash
-		log.Fatal("dialing: ", err)
-	}
-	defer c.Close()
-	err = c.Call(rpcname, args, reply)
+// func _notifyWorkers(rpcname string, args interface{}, reply interface{}) bool {
+// 	for _, port := range
+// 	c, err :=
+// }
 
-	return err == nil
+// TODO: add slice of active connections to coordinator and concurrently notify all of them
+func (ac *AviaryCoordinator) notifyWorkers(rpcname string, args interface{}, reply interface{}) bool {
+	// TODO: iterate over all the ports in the coordinator slices and concurrently notify workers
+
+	fmt.Println("(coord) Entered notifyWorkers()")
+	fmt.Println(ac.activeConnections)
+
+	for _, port := range ac.activeConnections {
+		c, err := rpc.DialHTTP("tcp", ":"+strconv.Itoa(port))
+		if err != nil {
+			log.Fatal("dialing: ", err)
+		}
+		defer c.Close()
+		err = c.Call(rpcname, args, reply)
+		if err != nil {
+			return false
+		}
+	}
+	return true
+
+	// c, err := rpc.DialHTTP("tcp", ":1235")
+	// if err != nil {
+	// 	// TODO: if the worker doesn't exist, the coordinator shouldnt crash
+	// 	log.Fatal("dialing: ", err)
+	// }
+	// defer c.Close()
+	// err = c.Call(rpcname, args, reply)
+
+	// return err == nil
 }
 
-// coordinator notifies workers about a new job
+// TODO:
+// coordinator notifies workers about a new job (calls notifyWorkers())
 func (c *AviaryCoordinator) CoordinatorCall(request *CoordinatorRequest, reply *CoordinatorReply) error {
-	ok := notifyWorkers("AviaryWorker.CoordinatorRequestHandler", request, reply)
+	ok := c.notifyWorkers("AviaryWorker.CoordinatorRequestHandler", request, reply)
 	if !ok {
 		fmt.Println("something went wrong with trying to send rpc from coord to worker")
 	}
+	// c.notifyWorkers("AviaryWorker.CoordinatorRequestHandler", request, reply)
 	return nil
 }
 
@@ -93,7 +119,6 @@ type ClerkType = string
 const (
 	JOB  ClerkType = "JOB"
 	SHOW           = "SHOW"
-	// INSERT           = "INSERT"
 )
 
 type ReplyType = string
@@ -139,19 +164,32 @@ func (c *AviaryCoordinator) ClerkRequestHandler(request *ClerkRequest, reply *Cl
 /* struct defs and functions for Coordinator to receive RPCs from Worker */
 
 type WorkerRequest struct {
+	WorkerID    UUID
+	WorkerState Phase
+	WorkerPort  int // if INIT Phase, should only be WorkerID, WorkerState, and WorkerPort
 }
 
 type WorkerReply struct {
+	Reply ReplyType
 }
 
 // RPC handler for the Aviary Coordinator in distributing out tasks to Aviary Workers
 // Each HTTP request has its own goroutine, i.e. GO runs the handler for each RPC in its own thread, so the fact
 // that one handler is waiting needn't prevent the coordinator from processing other RPCs
-func (c *AviaryCoordinator) WorkerRequestHandler(request *Request, reply *Reply) error {
+func (c *AviaryCoordinator) WorkerRequestHandler(request *WorkerRequest, reply *WorkerReply) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	fmt.Println(request.WorkerRequest)
-	fmt.Println(reply.CoordinatorReply)
+	switch request.WorkerState {
+	case INIT:
+		fmt.Printf("(coord) WorkerRequestHandler: case INIT. Going to add WorkerPort %d to map.\n", request.WorkerPort)
+		c.activeConnections[request.WorkerID] = request.WorkerPort
+		reply.Reply = OK
+
+		fmt.Println(c.activeConnections)
+
+	default:
+	}
+	reply.Reply = OK
 	return nil
 }
 
@@ -167,52 +205,4 @@ func (c *AviaryCoordinator) server() {
 		log.Fatal("listen error: ", err)
 	}
 	go http.Serve(l, nil)
-}
-
-func workerCall(rpcname string, args interface{}, reply interface{}) bool {
-	c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
-	if err != nil {
-		log.Fatal("dialing: ", err)
-	}
-	defer c.Close()
-
-	err = c.Call(rpcname, args, reply)
-	if err == nil {
-		return true
-	}
-	fmt.Println(err)
-	return false
-}
-
-func WorkerCall(request *Request, reply *Reply) {
-	ok := workerCall("AviaryCoordinator.WorkerRequestHandler", request, reply)
-	if !ok {
-		os.Exit(0)
-	}
-}
-
-// potential issue: how does coordinator broadcast to all workers?
-// dont think we can reuse the same port
-// but similar to coord, start a thread that listens for RPCs from coordinator
-func (w *AviaryWorker) server() {
-	rpc.Register(w)
-	rpc.HandleHTTP()
-	// sockname := coordinatorSock()
-	sockname := workerSock()
-	os.Remove(sockname)
-	l, err := net.Listen("tcp", ":1235")
-	if err != nil {
-		log.Fatal("listen error: ", err)
-	}
-	go http.Serve(l, nil)
-}
-
-func (w *AviaryWorker) CoordinatorRequestHandler(request *CoordinatorRequest, reply *CoordinatorReply) error {
-	fmt.Println("worker entered coordinator request handler")
-	fmt.Println(*request)
-
-	w.requestCh <- *request
-	fmt.Println("finished sending request over requestCh")
-	reply.Message = "OK"
-	return nil
 }

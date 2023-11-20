@@ -5,8 +5,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
-	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -25,27 +25,28 @@ func main() {
 		log.Fatal(err)
 	}
 	fileContents := string(fileBytes)
-	fileSlice := strings.Fields(fileContents)
+	// fileSlice := strings.Fields(fileContents)
 
 	// gather the InputData
-	// documents := make([]aviary.InputData, 0)
+	// TODO: fix the string partitioning
 	documents := []interface{}{}
-	for i := 0; i < len(fileSlice); i = i + 500 {
-		if i+500 >= len(fileSlice) {
-			data := aviary.InputData{
-				Tag:      "wc",
-				Contents: make([]string, len(fileSlice)-i+1),
+	for i := 0; i < len(fileContents); i += 500 {
+		var data aviary.InputData
+
+		if i+500 >= len(fileContents) {
+			data = aviary.InputData{
+				Tag:       "wc",
+				Partition: rand.Intn(3),
+				Contents:  fileContents[i:],
 			}
-			copy(data.Contents, fileSlice[i:])
-			documents = append(documents, data)
 		} else {
-			data := aviary.InputData{
-				Tag:      "wc",
-				Contents: make([]string, len(fileSlice)-i+1),
+			data = aviary.InputData{
+				Tag:       "wc",
+				Partition: rand.Intn(3),
+				Contents:  fileContents[i : i+500],
 			}
-			copy(data.Contents, fileSlice[i:i+500])
-			documents = append(documents, data)
 		}
+		documents = append(documents, data)
 	}
 
 	// batch insert into MongoDB

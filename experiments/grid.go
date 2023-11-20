@@ -44,15 +44,62 @@ func main() {
 		panic(err)
 	}
 
-	file, err := os.Open("lib.so")
+	// file, err := os.Open("lib.so")
+	file, err := os.Open("asdf.txt")
 	uploadOpts := options.GridFSUpload().SetMetadata(bson.D{{"metadata tag", "first"}})
-	objectID, err := bucket.UploadFromStream("lib.so", io.Reader(file), uploadOpts)
+	// objectID, err := bucket.UploadFromStream("lib.so", io.Reader(file), uploadOpts)
+	objectID, err := bucket.UploadFromStream("asdf.txt", io.Reader(file), uploadOpts)
 
 	if err != nil {
 		panic(err)
 	}
 
 	fmt.Printf("New file uploaded with ID %s\n", objectID)
+
+	filter := bson.D{{}}
+	cursor, err := bucket.Find(filter)
+	if err != nil {
+		panic(err)
+	}
+
+	type gridfsFile struct {
+		Name   string `bson:"filename"`
+		Length int64  `bson:"length"`
+	}
+
+	var foundFiles []gridfsFile
+	if err = cursor.All(context.TODO(), &foundFiles); err != nil {
+		panic(err)
+	}
+
+	for _, file := range foundFiles {
+		fmt.Printf("filename: %s, length: %d\n", file.Name, file.Length)
+	}
+
+	fmt.Println("GOING OT TRY TO DOWNLOAD FILE FROM GRIDFS")
+
+	downloadStream, err := bucket.OpenDownloadStream(objectID)
+	if err != nil {
+		panic(err)
+	}
+
+	// dfile, err := os.Create("lib.so")
+	dfile, err := os.Create("downloaded_asdf.txt")
+	if err != nil {
+		panic(err)
+	}
+
+	_, err = io.Copy(dfile, downloadStream)
+	if err != nil {
+		panic(err)
+	}
+
+	defer downloadStream.Close()
+	defer dfile.Close()
+
+	fmt.Println("downloaded a file from GridFS")
+
+	// id, err := primitive.ObjectIDFromHex()
 
 	// fmt.Println(bucket)
 
