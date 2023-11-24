@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"net/rpc"
-	"os"
 	"strconv"
 	"time"
 
@@ -22,8 +21,6 @@ func (c *AviaryCoordinator) server() {
 	fmt.Println("Entered AviaryCoordinator.server()")
 	rpc.Register(c)
 	rpc.HandleHTTP()
-	sockname := coordinatorSock()
-	os.Remove(sockname)
 	l, err := net.Listen("tcp", ":1234")
 	if err != nil {
 		log.Fatal("listen error: ", err)
@@ -42,7 +39,6 @@ func (c *AviaryCoordinator) WorkerRequestHandler(request *WorkerRequest, reply *
 		fmt.Printf("(coord) WorkerRequestHandler: case INIT. Going to add WorkerPort %d to map.\n", request.WorkerPort)
 		c.activeConnections[request.WorkerID] = request.WorkerPort
 		reply.Reply = OK
-		// fmt.Println(c.activeConnections)
 
 	case MAP_DONE:
 		fmt.Printf("(coord) WorkerRequestHandler: case MAP_DONE.")
@@ -278,8 +274,7 @@ func (c *AviaryCoordinator) startNewJob(request *ClerkRequest) {
 		FunctionID:     request.FunctionID,
 	})
 
-	// c._prettyPrintJobs()
-	// instead of notifying workers, will just have workers poll coordinator instead
+	// instead of notifying workers, just have workers poll coordinator instead?
 	i := 0
 	for _, port := range c.activeConnections {
 		// notify workers about a new job through RPC calls
@@ -329,7 +324,6 @@ func (ac *AviaryCoordinator) notifyWorker(port int, request *CoordinatorRequest)
 	if err != nil {
 		log.Fatal("err in notifyWorker: ", err)
 	}
-	// return err
 }
 
 /* struct defs and functions for Coordinator to send RPC to Workers */

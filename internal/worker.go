@@ -396,9 +396,6 @@ func WorkerCall(request *WorkerRequest, reply *WorkerReply) {
 func (w *AviaryWorker) server() {
 	rpc.Register(w)
 	rpc.HandleHTTP()
-	sockname := coordinatorSock()
-	// sockname := workerSock()
-	os.Remove(sockname)
 
 	var l net.Listener
 	var err error
@@ -481,9 +478,6 @@ func (w *AviaryWorker) CoordinatorRequestHandler(request *CoordinatorRequest, re
 
 			downloadStream.Close()
 		}
-
-		// []
-		fmt.Println(keyvalues)
 
 		// sort
 		// kva filled with the values of the first intermediate, need to sort

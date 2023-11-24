@@ -1,9 +1,6 @@
 package aviary
 
 import (
-	"os"
-	"strconv"
-
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -22,6 +19,7 @@ const (
 	REDUCE_DONE       = "REDUCE_DONE"
 )
 
+/*
 func coordinatorSock() string {
 	s := "/var/tmp/aviary-coordinator-"
 	s += strconv.Itoa(os.Getuid())
@@ -33,6 +31,7 @@ func workerSock() string {
 	s += strconv.Itoa(os.Getuid())
 	return s
 }
+*/
 
 type ClerkType = string
 
