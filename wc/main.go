@@ -21,9 +21,14 @@ const uri = "mongodb://126.0.0.1:27117,127.0.0.1:27118"
 // NOTE: DO NOT RUN AGAIN (don't want duplicates in the database)
 func main() {
 	// read in the file
-	// fileBytes, err := os.ReadFile("pg-sherlock_holmes.txt")
+	// fileBytes, err := os.ReadFile("pg-being_ernest.txt")
+	// fileBytes, err := os.ReadFile("pg-dorian_gray.txt")
 	// fileBytes, err := os.ReadFile("pg-frankenstein.txt")
-	fileBytes, err := os.ReadFile("pg-grimm.txt")
+	// fileBytes, err := os.ReadFile("pg-grimm.txt")
+	// fileBytes, err := os.ReadFile("pg-huckleberry_finn.txt")
+	// fileBytes, err := os.ReadFile("pg-metamorphosis.txt")
+	// fileBytes, err := os.ReadFile("pg-sherlock_holmes.txt")
+	fileBytes, err := os.ReadFile("pg-tom_sawyer.txt")
 	if err != nil {
 		log.Fatal(err)
 	}
