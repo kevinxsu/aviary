@@ -316,8 +316,6 @@ func (w *AviaryWorker) Start() {
 				if err != nil {
 					log.Fatal("GridFS NewBucket error: ", err)
 				}
-				// uploadOpts := options.GridFSUpload().SetMetadata(bson.D{{}})
-				// objectID, err := bucket.UploadFromStream(name, io.Reader(tempFile), uploadOpts)
 				tempFile, _ = os.Open(name)
 				objectID, err := bucket.UploadFromStream(name, io.Reader(tempFile))
 				if err != nil {
@@ -334,13 +332,6 @@ func (w *AviaryWorker) Start() {
 			for _, oid := range obj_ids {
 				fmt.Println(oid)
 			}
-			// fmt.Printf("obj_ids: %v\n", obj_ids)
-
-			// tempFile, err = os.Open(filename)
-			// if err != nil {
-			// 	log.Fatal(err)
-			// }
-
 			/************************************************************************/
 
 			// once map task is done, worker needs to notify coordinator
@@ -380,7 +371,7 @@ func workerCall(rpcname string, args interface{}, reply interface{}) bool {
 	if err == nil {
 		return true
 	}
-	panic(err)
+	log.Fatal(err)
 	return false
 }
 
@@ -467,7 +458,6 @@ func (w *AviaryWorker) CoordinatorRequestHandler(request *CoordinatorRequest, re
 			}
 			fmt.Println("Aviary Worker connected to MongoDB!")
 			db := client.Database(request.DatabaseName)
-			// collection := db.Collection(job.CollectionName)
 			grid_opts := options.GridFSBucket().SetName("aviaryIntermediates")
 			bucket, err := gridfs.NewBucket(db, grid_opts)
 			if err != nil {
@@ -523,6 +513,9 @@ func (w *AviaryWorker) CoordinatorRequestHandler(request *CoordinatorRequest, re
 			fmt.Fprintf(tempFile, "%v %v\n", keyvalues[i].Key, reducefOutput)
 			i = j
 		}
+
+		// remove the *.so file
+		os.Remove("tmp" + w.WorkerID.String() + "lib.so")
 
 		reply.Reply = OK
 		return nil
