@@ -21,7 +21,9 @@ const uri = "mongodb://126.0.0.1:27117,127.0.0.1:27118"
 // NOTE: DO NOT RUN AGAIN (don't want duplicates in the database)
 func main() {
 	// read in the file
-	fileBytes, err := os.ReadFile("pg-sherlock_holmes.txt")
+	// fileBytes, err := os.ReadFile("pg-sherlock_holmes.txt")
+	// fileBytes, err := os.ReadFile("pg-frankenstein.txt")
+	fileBytes, err := os.ReadFile("pg-grimm.txt")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -47,37 +49,14 @@ func main() {
 				s = s + " " + fileSlice[j]
 			}
 			data = aviary.InputData{
-				Tag:       "wc",
+				Tag: "wc",
+				// partition should really just % number of shards
 				Partition: rand.Intn(3),
 				Contents:  s,
 			}
 		}
 		documents = append(documents, data)
 	}
-
-	/*
-		// gather the InputData
-		// TODO: fix the string partitioning
-		documents := []interface{}{}
-		for i := 0; i < len(fileContents); i += 500 {
-			var data aviary.InputData
-
-			if i+500 >= len(fileContents) {
-				data = aviary.InputData{
-					Tag:       "wc",
-					Partition: rand.Intn(3),
-					Contents:  fileContents[i:],
-				}
-			} else {
-				data = aviary.InputData{
-					Tag:       "wc",
-					Partition: rand.Intn(3),
-					Contents:  fileContents[i : i+500],
-				}
-			}
-			documents = append(documents, data)
-		}
-	*/
 
 	// batch insert into MongoDB
 	serverAPI := options.ServerAPI(options.ServerAPIVersion1)

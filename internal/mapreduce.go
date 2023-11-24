@@ -6,6 +6,19 @@ type KeyValue struct {
 	Value string
 }
 
+// corresponds to one document in MongoDB
+type InputData struct {
+	Tag       string
+	Partition int
+	Contents  string
+}
+
+type IntermediateData struct {
+	Key       string
+	Partition int
+	// ReduceTaskID int
+}
+
 // for sorting by key.
 type ByKey []KeyValue
 

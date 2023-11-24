@@ -39,13 +39,32 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
+func PrettyPrintJobs(jobs []Job) {
+	for _, job := range jobs {
+		fmt.Println("Job", job.JobID)
+		fmt.Println("    State: ", job.State)
+		fmt.Println("    Completed: ", job.Completed)
+		fmt.Println("    Ongoing: ", job.Ongoing)
+		fmt.Println("    DatabaseName: ", job.DatabaseName)
+		fmt.Println("    CollectionName: ", job.CollectionName)
+		fmt.Println("    FunctionID: ", job.FunctionID)
+	}
+}
+
 // pretty print the jobs (no locking)
 func (c *AviaryCoordinator) _prettyPrintJobs() {
 	for clientID, jobs := range c.jobs {
 		fmt.Printf("Client %d:\n", clientID)
-		for _, job := range jobs {
-			fmt.Printf("\t%v\n", job)
-		}
+		PrettyPrintJobs(jobs)
+		// for _, job := range jobs {
+		// 	fmt.Println("Job", job.JobID)
+		// 	fmt.Println("    State: ", job.State)
+		// 	fmt.Println("    Completed: ", job.Completed)
+		// 	fmt.Println("    Ongoing: ", job.Ongoing)
+		// 	fmt.Println("    DatabaseName: ", job.DatabaseName)
+		// 	fmt.Println("    CollectionName: ", job.CollectionName)
+		// 	fmt.Println("    FunctionID: ", job.FunctionID)
+		// }
 	}
 }
 

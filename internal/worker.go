@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -275,36 +276,6 @@ func (w *AviaryWorker) Start() {
 				intermediates = append(intermediates, intermediate...)
 			}
 
-			// fmt.Println(len(intermediates))
-			// fmt.Println(intermediates[0])
-			// fmt.Println(intermediates)
-
-			// save the intermediates into a file and then insert into GridFS
-			// unique filename: worker UUID + ??
-			/*
-				filename := w.WorkerID.String() + "-" + strconv.Itoa(job.Partition) + ".json"
-
-				tempFile, err := os.Create(filename)
-
-				if err != nil {
-					log.Fatal(err)
-				}
-
-				// write all of the intermediates to the tempfile
-				enc := json.NewEncoder(tempFile)
-				for _, kv := range intermediates {
-					err := enc.Encode(kv)
-					if err != nil {
-						log.Fatal(err)
-					}
-				}
-
-				err = tempFile.Close()
-				if err != nil {
-					log.Fatal(err)
-				}
-			*/
-
 			// TODO: fix hardcode
 			nreduce := 3
 			intermediate_files := make([][]KeyValue, nreduce)
@@ -315,7 +286,10 @@ func (w *AviaryWorker) Start() {
 				intermediate_files[ikey] = append(intermediate_files[ikey], kv)
 			}
 
-			inter_filenames := []string{"inter_map_1.json", "inter_map_2.json", "inter_map_3.json"}
+			file1 := w.WorkerID.String() + "inter_1.json"
+			file2 := w.WorkerID.String() + "inter_2.json"
+			file3 := w.WorkerID.String() + "inter_3.json"
+			inter_filenames := []string{file1, file2, file3}
 
 			obj_ids := make([]primitive.ObjectID, 0)
 
@@ -325,6 +299,8 @@ func (w *AviaryWorker) Start() {
 					log.Fatal(err)
 				}
 
+				// w := io.Writer(tempFile)
+				// enc := json.NewEncoder(w)
 				enc := json.NewEncoder(tempFile)
 				for _, kv := range intermediate_files[i] {
 					err = enc.Encode(&kv)
@@ -332,6 +308,7 @@ func (w *AviaryWorker) Start() {
 						log.Fatal(err)
 					}
 				}
+				tempFile.Close()
 
 				/* open db connection & upload */
 				grid_opts := options.GridFSBucket().SetName("aviaryIntermediates")
@@ -339,17 +316,25 @@ func (w *AviaryWorker) Start() {
 				if err != nil {
 					log.Fatal("GridFS NewBucket error: ", err)
 				}
-				uploadOpts := options.GridFSUpload().SetMetadata(bson.D{{}})
-				// objectID, err := bucket.UploadFromStream(filename, io.Reader(tempFile), uploadOpts)
-				objectID, err := bucket.UploadFromStream(name, io.Reader(tempFile), uploadOpts)
+				// uploadOpts := options.GridFSUpload().SetMetadata(bson.D{{}})
+				// objectID, err := bucket.UploadFromStream(name, io.Reader(tempFile), uploadOpts)
+				tempFile, _ = os.Open(name)
+				objectID, err := bucket.UploadFromStream(name, io.Reader(tempFile))
 				if err != nil {
 					log.Fatal("bucket.UploadFromStream error: ", err)
 				}
-
 				obj_ids = append(obj_ids, objectID)
 			}
 
-			fmt.Printf("obj_ids: %v\n", obj_ids)
+			for _, file := range inter_filenames {
+				os.Remove(file)
+			}
+
+			fmt.Println("Worker " + w.WorkerID.String())
+			for _, oid := range obj_ids {
+				fmt.Println(oid)
+			}
+			// fmt.Printf("obj_ids: %v\n", obj_ids)
 
 			// tempFile, err = os.Open(filename)
 			// if err != nil {
@@ -364,10 +349,7 @@ func (w *AviaryWorker) Start() {
 				WorkerState: MAP_DONE,
 				OIDs:        obj_ids,
 			}
-
 			reply := WorkerReply{}
-
-			// go?
 			WorkerCall(&request, &reply)
 
 			/************************************************************************/
@@ -383,9 +365,14 @@ func (w *AviaryWorker) Start() {
 // TODO: for workers on startup, workers need to send an RPC to the coordinator
 // and provide the coordinator with it's HTTP endpoint
 func workerCall(rpcname string, args interface{}, reply interface{}) bool {
-	c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
-	if err != nil {
-		log.Fatal("dialing: ", err)
+	var c *rpc.Client
+	var err error
+	for {
+		// continuously loop until worker can contact Coordinator
+		c, err = rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
+		if err == nil {
+			break
+		}
 	}
 	defer c.Close()
 
@@ -393,7 +380,7 @@ func workerCall(rpcname string, args interface{}, reply interface{}) bool {
 	if err == nil {
 		return true
 	}
-	fmt.Printf("ASDASDASD error in workerCall: %v\n", err)
+	panic(err)
 	return false
 }
 
@@ -418,8 +405,8 @@ func WorkerCall(request *WorkerRequest, reply *WorkerReply) {
 func (w *AviaryWorker) server() {
 	rpc.Register(w)
 	rpc.HandleHTTP()
-	// sockname := coordinatorSock()
-	sockname := workerSock()
+	sockname := coordinatorSock()
+	// sockname := workerSock()
 	os.Remove(sockname)
 
 	var l net.Listener
@@ -435,62 +422,6 @@ func (w *AviaryWorker) server() {
 	fmt.Printf("(worker) server(): found good port: %d\n", w.port)
 	go http.Serve(l, nil)
 }
-
-/*
-func (w *AviaryWorker) ApplyReduce() {
-	tempFile, err := ioutil.TempFile("./", getRandomName())
-	defer tempFile.Close()
-	if err != nil {
-		log.Fatal(err)
-		panic("Worker.go: ApplyReduce(): Error in creating temp file!\n")
-	}
-
-	intermediate := []KeyValue{}
-	// iterate over all intermediate files
-	for _, filename := range filenames {
-		file, err := os.Open(filename)
-		defer file.Close()
-		if err != nil {
-			log.Fatal(err)
-		}
-		dec := json.NewDecoder(file)
-		for {
-			var kv KeyValue
-			if err := dec.Decode(&kv); err != nil {
-				break
-			}
-			intermediate = append(intermediate, kv)
-		}
-	}
-
-	// kva filled with the values of the first intermediate, need to sort
-	// "shuffle" step
-	sort.Sort(ByKey(intermediate))
-
-	// now combine the values of the same keys
-	i := 0
-	for i < len(intermediate) {
-		j := i + 1
-		for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
-			j++
-		}
-		coalescedValues := []string{}
-		for k := i; k < j; k++ {
-			coalescedValues = append(coalescedValues, intermediate[k].Value)
-		}
-		reducefOutput := w.reducef(intermediate[i].Key, coalescedValues)
-		// print it into the file
-		fmt.Fprintf(tempFile, "%v %v\n", intermediate[i].Key, reducefOutput)
-		i = j
-	}
-
-	filename := fmt.Sprintf("mr-out-%d", taskID)
-	os.Rename(tempFile.Name(), filename)
-
-	return filename
-}
-
-*/
 
 // Worker's RPC handler for Coordinator notifications
 func (w *AviaryWorker) CoordinatorRequestHandler(request *CoordinatorRequest, reply *CoordinatorReply) error {
@@ -509,7 +440,10 @@ func (w *AviaryWorker) CoordinatorRequestHandler(request *CoordinatorRequest, re
 
 		// files to download from gridfs
 		oids := request.OIDs
-		fmt.Printf("oids: %v\n", oids)
+		fmt.Println("OIDs")
+		for _, oid := range oids {
+			fmt.Println(oid)
+		}
 
 		keyvalues := make([]KeyValue, 0)
 
@@ -534,51 +468,28 @@ func (w *AviaryWorker) CoordinatorRequestHandler(request *CoordinatorRequest, re
 			fmt.Println("Aviary Worker connected to MongoDB!")
 			db := client.Database(request.DatabaseName)
 			// collection := db.Collection(job.CollectionName)
-
-			// grid_opts := options.GridFSBucket().SetName("aviaryIntermediates")
-			grid_opts := options.GridFSBucket().SetName("aviaryIntermediates.files")
+			grid_opts := options.GridFSBucket().SetName("aviaryIntermediates")
 			bucket, err := gridfs.NewBucket(db, grid_opts)
 			if err != nil {
-				log.Fatal(err)
+				panic(err)
 			}
 
 			downloadStream, err := bucket.OpenDownloadStream(oid)
 			if err != nil {
-				log.Fatal(err)
 				panic(err)
 			}
 
-			tmpFilename := "tmp" + w.WorkerID.String() + ".json"
-			file, err := os.Create(tmpFilename)
-			if err != nil {
-				log.Fatal(err)
-				panic(err)
-			}
+			dec := json.NewDecoder(downloadStream)
 
-			_, err = io.Copy(file, downloadStream)
-			if err != nil {
-				log.Fatal(err)
-				panic(err)
-			}
-
-			dec := json.NewDecoder(file)
 			for {
 				var kv KeyValue
 				if err := dec.Decode(&kv); err != nil {
-					log.Fatal(err)
 					break
 				}
 				keyvalues = append(keyvalues, kv)
 			}
 
-			// bytes, err = ioutil.ReadAll(file)
-			// if err != nil {
-			// 	panic(err)
-			// }
-			// json.Unmarshal()
-
-			defer downloadStream.Close()
-			defer file.Close()
+			downloadStream.Close()
 		}
 
 		// []
@@ -620,4 +531,26 @@ func (w *AviaryWorker) CoordinatorRequestHandler(request *CoordinatorRequest, re
 		reply.Reply = OK
 		return nil
 	}
+}
+
+type WorkerState struct {
+	JobID    uuid.UUID
+	WorkerID uuid.UUID
+	Action   Phase
+	Key      interface{}
+	Value    interface{}
+}
+
+type WorkerRequest struct {
+	WorkerID    UUID
+	WorkerState Phase
+	WorkerPort  int // if INIT Phase, should only be WorkerID, WorkerState, and WorkerPort
+
+	// the id of the intermediate data from Map phase (stored in GridFS)
+	// ObjectID primitive.ObjectID
+	OIDs []primitive.ObjectID
+}
+
+type WorkerReply struct {
+	Reply ReplyType
 }

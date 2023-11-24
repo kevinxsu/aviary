@@ -4,11 +4,13 @@ import (
 	aviary "aviary/internal"
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/rpc"
 	"os"
+	"os/exec"
 	"plugin"
 	"strings"
 
@@ -116,6 +118,26 @@ func uploadPlugin(filename string, clientID int) primitive.ObjectID {
 	return objectID
 }
 
+func compile(path string) (string, error) {
+	fmt.Println("entered compile")
+	tmp := aviary.Gensym().String() + ".so"
+	cmd := exec.Command("go", "build", "-buildmode=plugin", "-o", tmp, path)
+	err := cmd.Run()
+	if err != nil {
+		return "", err
+	}
+	out, err := exec.Command("ls").Output()
+	if err != nil {
+		return "", err
+	}
+	fmt.Println(string(out))
+
+	if !checkPlugin(tmp) {
+		return "", errors.New("invalid map/reduce functions")
+	}
+	return tmp, nil
+}
+
 func main() {
 	reader := bufio.NewReader(os.Stdin)
 	for {
@@ -142,15 +164,17 @@ func main() {
 			id := argv[1]
 			clientID := aviary.IHash(id)
 
-			// make sure the *.so file is valid
 			filename := argv[2]
-			if !checkPlugin(filename) {
-				fmt.Printf("WARNING: %s either didnt have correct function types or couldn't be found. Aborting...\n", filename)
+			tmp, err := compile(filename)
+			if err != nil {
 				continue
 			}
 
-			// upload the *.so file to GridFS
-			functionID := uploadPlugin(filename, clientID)
+			// upload the freshly compiled *.so file to GridFS
+			functionID := uploadPlugin(tmp, clientID)
+
+			// remove the tmp binaries
+			os.Remove(tmp)
 
 			dbName := argv[3]
 			collName := argv[4]
@@ -179,27 +203,26 @@ func main() {
 			}
 			reply := aviary.ClerkReply{}
 			ClerkCall(&request, &reply)
-			fmt.Println(reply)
+			aviary.PrettyPrintJobs(reply.Jobs)
 
 		// quickly insert something
 		case "debug", "d":
 
 			id := "user"
 			clientID := aviary.IHash(id)
-			filename := "../mrapps/wc.so"
+			filename := "../mrapps/wc.go"
 			dbName := "db"
 			collName := "coll"
 			tag := "wc"
 
-			// make sure the *.so file is valid
-			if !checkPlugin(filename) {
-				fmt.Printf("WARNING: %s either didnt have correct function types or couldn't be found. Aborting...\n", filename)
-				continue
+			tmp, err := compile(filename)
+			if err != nil {
+				log.Fatal(err)
 			}
 
 			fmt.Printf("about to upload %s to GridFS\n", filename)
-			// upload the *.so file to GridFS
-			functionID := uploadPlugin(filename, clientID)
+			functionID := uploadPlugin(tmp, clientID)
+			os.Remove(tmp)
 
 			request := aviary.ClerkRequest{
 				Type:           aviary.JOB,

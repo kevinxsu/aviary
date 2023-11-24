@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
+	"net/http"
 	"net/rpc"
+	"os"
 	"strconv"
-	"sync"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -15,53 +17,78 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-type JobState = int
-
-const (
-	MAPPING JobState = iota
-	REDUCING
-	DONE
-)
-
-// a Job struct contains information about the requested MapReduce job
-// TODO: figure out how to actually do the MapReduce... given this information
-type Job struct {
-	// actual job stuff
-	JobID     int
-	State     JobState
-	Completed []int
-	Ongoing   []int
-	mu        sync.Mutex
-
-	// extraneous details about the job from a Clerk RPC
-	DatabaseName   string
-	CollectionName string
-	Tag            string
-	FunctionID     primitive.ObjectID
+// start a thread that listens for RPCs from worker.go
+func (c *AviaryCoordinator) server() {
+	fmt.Println("Entered AviaryCoordinator.server()")
+	rpc.Register(c)
+	rpc.HandleHTTP()
+	sockname := coordinatorSock()
+	os.Remove(sockname)
+	l, err := net.Listen("tcp", ":1234")
+	if err != nil {
+		log.Fatal("listen error: ", err)
+	}
+	go http.Serve(l, nil)
 }
 
-// TODO: "implement" coordinator fault-tolerance
-// by transactionally storing Coordinator state in MongoDB
-type AviaryCoordinator struct {
-	// int to identify clients, and maps to their jobs
-	jobs     map[int][]Job
-	mu       sync.Mutex
-	clerkCh  chan ClerkRequest
-	workerCh chan WorkerRequest
-	insertCh chan bson.D
-	findCh   chan bson.D
+// RPC handler for the Aviary Coordinator in distributing out tasks to Aviary Workers
+// Each HTTP request has its own goroutine, i.e. GO runs the handler for each RPC in its own thread, so the fact
+// that one handler is waiting needn't prevent the coordinator from processing other RPCs
+func (c *AviaryCoordinator) WorkerRequestHandler(request *WorkerRequest, reply *WorkerReply) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	switch request.WorkerState {
+	case INIT:
+		fmt.Printf("(coord) WorkerRequestHandler: case INIT. Going to add WorkerPort %d to map.\n", request.WorkerPort)
+		c.activeConnections[request.WorkerID] = request.WorkerPort
+		reply.Reply = OK
+		// fmt.Println(c.activeConnections)
 
-	activeConnections map[UUID]int // slice of active connections to workers
+	case MAP_DONE:
+		fmt.Printf("(coord) WorkerRequestHandler: case MAP_DONE.")
+		// incr count
+		c.count++
 
-	insertFunctionCh chan MongoFunction
+		// append to c.Files
+		// c.Files = append(c.Files, request.OIDs...)
 
-	// oids for intermediate files in GridFS
-	Files [][]primitive.ObjectID
-	// FileNames []string
+		c.Files[0] = append(c.Files[0], request.OIDs[0])
+		c.Files[1] = append(c.Files[1], request.OIDs[1])
+		c.Files[2] = append(c.Files[2], request.OIDs[2])
 
-	// placeholder
-	count int
+		// start reducing
+		if c.count == 3 {
+			// TODO:
+			// go func(c *AviaryCoordinator) {
+			fmt.Println("entered anonymous function")
+			i := 0
+			for _, port := range c.activeConnections {
+				// notify workers about request jobs
+				newRequest := CoordinatorRequest{
+					Phase:          REDUCE,
+					DatabaseName:   "db",
+					CollectionName: "coll",
+					Tag:            "wc",
+					Partition:      i,
+					OIDs:           c.Files[i],
+				}
+				c.notifyWorker(port, &newRequest)
+				i++
+			}
+		}
+
+		reply.Reply = OK
+
+	case REDUCE_DONE:
+		fmt.Printf("(coord) WorkerRequestHandler: case REDUCE_DONE.")
+
+	default:
+	}
+	reply.Reply = OK
+	return nil
 }
+
+// the Aviary Coordinator struct
 
 // creates an Aviary Coordinator
 func MakeCoordinator() *AviaryCoordinator {
@@ -75,13 +102,13 @@ func MakeCoordinator() *AviaryCoordinator {
 
 	c.activeConnections = make(map[UUID]int)
 
-	c.insertFunctionCh = make(chan MongoFunction)
-
 	// invariant count = len(c.files)
 	c.count = 0
 	// c.Files = make([]primitive.ObjectID, 0)
 	c.Files = make([][]primitive.ObjectID, 3)
-	// c.FileNames = make([]string, 0)
+	c.counts = make(map[int]int)
+
+	c.context = AviaryContext{}
 
 	// establish connection to mongodb first before listening for RPCs
 	ch := make(chan bool)
@@ -103,13 +130,46 @@ func StartCoordinator() {
 func (c *AviaryCoordinator) Start() {
 	for {
 		select {
-		// a client request
-		case request := <-c.clerkCh:
-			// NOTE: client can send clerk different kinds of requests, but any non-MR job
-			// request will be handled in the RPC handler rather than here
-			// BUT not sure if this is good design, probably better to just have it all in one place?
+		case request := <-c.clerkCh: // c.startNewJob(&request)
 			fmt.Printf("clerkCh with %v\n", request)
-			c.startNewJob(&request)
+			go func() {
+				c.mu.Lock()
+				defer c.mu.Unlock()
+				clientID := request.ClientID
+				// generate a random id for the new job
+				jobID := c.counts[clientID] // vs. jobID := IHash((c._gensym()).String())
+				c.counts[clientID]++
+
+				// insert a new job into the client's list of jobs
+				c.jobs[clientID] = append(c.jobs[clientID], Job{
+					JobID:          jobID,
+					State:          PENDING,
+					Completed:      make([]int, 0),
+					Ongoing:        make([]int, 1),
+					DatabaseName:   request.DatabaseName,
+					CollectionName: request.CollectionName,
+					Tag:            request.Tag,
+					FunctionID:     request.FunctionID,
+				})
+
+				fmt.Println("worker ports: ", c.activeConnections)
+
+				i := 0
+				for _, port := range c.activeConnections {
+					// notify workers about a new job through RPC calls
+					newRequest := CoordinatorRequest{
+						Phase:          MAP,
+						DatabaseName:   request.DatabaseName,
+						CollectionName: request.CollectionName,
+						Tag:            request.Tag,
+						FunctionID:     request.FunctionID,
+						Partition:      i,
+						JobID:          jobID,
+					}
+					go c.notifyWorker(port, &newRequest)
+					i++
+				}
+			}()
 
 		// a worker notification
 		case request := <-c.workerCh:
@@ -142,11 +202,14 @@ func (c *AviaryCoordinator) mongoConnection(ch chan bool) {
 		// TODO: change so aviary still continues
 		panic(err)
 	}
-	fmt.Println("Aviary Coordinator connected to MongoDB")
+	fmt.Println("Aviary Coordinator connected to MongoDB!")
 
-	// for now, we'll assume that all the users use one database
+	// for now, we'll assume that all the users use one database, called "db"
 	intermediates := client.Database("db").Collection("aviaryIntermediates")
 	functions := client.Database("db").Collection("aviaryFuncs")
+
+	c.context.intermediates = intermediates
+	c.context.functions = functions
 
 	// unblock MakeCoordinator thread
 	ch <- true
@@ -165,19 +228,6 @@ func (c *AviaryCoordinator) mongoConnection(ch chan bool) {
 				log.Fatal("mongo insert error: ", err)
 			}
 			fmt.Printf("Coordinator inserted %v with id\n", res, res.InsertedID)
-
-		// no longer in use: Clerk uploads to GridFS first
-		// case function := <-c.insertFunctionCh:
-		// 	fmt.Println("Case: function := <-c.insertFunctionCh")
-
-		// 	ctxt, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		// 	defer cancel()
-
-		// 	res, err := functions.InsertOne(ctxt, function)
-		// 	if err != nil {
-		// 		log.Fatal("mongo insert function error: ", err)
-		// 	}
-		// 	fmt.Printf("Coordinator inserted %v\n", res)
 
 		case filter := <-c.findCh:
 			fmt.Println("Case: filter := <-c.findCh")
@@ -199,8 +249,6 @@ func (c *AviaryCoordinator) mongoConnection(ch chan bool) {
 func (c *AviaryCoordinator) ShowJobs(clientID int) []Job {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	// c._prettyPrintJobs()
-
 	jobs := make([]Job, len(c.jobs[clientID]))
 	copy(jobs, c.jobs[clientID])
 	return jobs
@@ -208,69 +256,62 @@ func (c *AviaryCoordinator) ShowJobs(clientID int) []Job {
 
 /* back-end functions */
 
-// struct definition for a mongo function insertion
-type MongoFunction struct {
-	ClientID   int
-	JobID      int
-	MapFunc    string
-	ReduceFunc string
-}
-
 // when client wants to start a new Job
 func (c *AviaryCoordinator) startNewJob(request *ClerkRequest) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	clientID := request.ClientID
-	functionID := request.FunctionID
-	dbName := request.DatabaseName
-	collName := request.CollectionName
-	tag := request.Tag
+	// generate a random id for the new job
+	jobID := c.counts[clientID] // vs. jobID := IHash((c._gensym()).String())
+	c.counts[clientID]++
 
-	// generate a random job id
-	jobID := IHash((c._gensym()).String())
-
-	// create a new Job struct
-	newJob := Job{
+	// insert a new job into the client's list of jobs
+	c.jobs[clientID] = append(c.jobs[clientID], Job{
 		JobID:          jobID,
+		State:          PENDING,
 		Completed:      make([]int, 0),
 		Ongoing:        make([]int, 1),
-		DatabaseName:   dbName,
-		CollectionName: collName,
-		Tag:            tag,
-		FunctionID:     functionID,
-	}
+		DatabaseName:   request.DatabaseName,
+		CollectionName: request.CollectionName,
+		Tag:            request.Tag,
+		FunctionID:     request.FunctionID,
+	})
 
-	// insert the new job into the client's list of jobs
-	c.jobs[clientID] = append(c.jobs[clientID], newJob)
-	c._prettyPrintJobs()
-
+	// c._prettyPrintJobs()
+	// instead of notifying workers, will just have workers poll coordinator instead
 	i := 0
 	for _, port := range c.activeConnections {
-
 		// notify workers about a new job through RPC calls
 		newRequest := CoordinatorRequest{
 			Phase:          MAP,
-			DatabaseName:   dbName,
-			CollectionName: collName,
-			Tag:            tag,
-			FunctionID:     functionID,
+			DatabaseName:   request.DatabaseName,
+			CollectionName: request.CollectionName,
+			Tag:            request.Tag,
+			FunctionID:     request.FunctionID,
 			Partition:      i,
 		}
 		go c.notifyWorker(port, &newRequest)
 		i++
 	}
+}
 
-	// // maybe call as goroutine?
-	// err := c.CoordinatorCall(&newRequest, &newReply)
+// RPC request handler for incoming Clerk messages
+func (c *AviaryCoordinator) ClerkRequestHandler(request *ClerkRequest, reply *ClerkReply) error {
+	switch request.Type {
+	case JOB:
+		c.clerkCh <- *request
+		reply.Message = OK
 
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
+	// show in progress jobs
+	case SHOW:
+		reply.Jobs = c.ShowJobs(request.ClientID)
+		reply.Message = OK
 
-	// if newReply.Message != "OK" {
-	// 	log.Fatal("CoordinatorCall RPC to Worker Reply was not OK")
-	// }
+	default:
+	}
+
+	return nil
 }
 
 // notify the worker at the given port about the new job
@@ -289,4 +330,55 @@ func (ac *AviaryCoordinator) notifyWorker(port int, request *CoordinatorRequest)
 		log.Fatal("err in notifyWorker: ", err)
 	}
 	// return err
+}
+
+/* struct defs and functions for Coordinator to send RPC to Workers */
+
+type CoordinatorRequest struct {
+	Phase          Phase
+	DatabaseName   string
+	CollectionName string
+	Tag            string
+	FunctionID     primitive.ObjectID
+	Partition      int
+	JobID          int
+
+	// intermediate files in gridfs
+	OIDs []primitive.ObjectID
+}
+
+type CoordinatorReply struct {
+	Reply   string
+	Message string
+}
+
+// TODO: add slice of active connections to coordinator and concurrently notify all of them
+func (ac *AviaryCoordinator) notifyWorkers(rpcname string, args interface{}, reply interface{}) bool {
+	// TODO: iterate over all the ports in the coordinator slices and concurrently notify workers
+
+	fmt.Println("(coord) Entered notifyWorkers()")
+	fmt.Println(ac.activeConnections)
+
+	for _, port := range ac.activeConnections {
+		c, err := rpc.DialHTTP("tcp", ":"+strconv.Itoa(port))
+		if err != nil {
+			log.Fatal("dialing: ", err)
+		}
+		defer c.Close()
+		err = c.Call(rpcname, args, reply)
+		if err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// TODO:
+// coordinator notifies workers about a new job (calls notifyWorkers())
+func (c *AviaryCoordinator) CoordinatorCall(request *CoordinatorRequest, reply *CoordinatorReply) error {
+	ok := c.notifyWorkers("AviaryWorker.CoordinatorRequestHandler", request, reply)
+	if !ok {
+		fmt.Println("something went wrong with trying to send rpc from coord to worker")
+	}
+	return nil
 }
