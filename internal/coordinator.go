@@ -39,12 +39,6 @@ func (c *AviaryCoordinator) WorkerRequestHandler(request *WorkerRequest, reply *
 		c.activeConnections[request.WorkerID] = request.WorkerPort
 		reply.Reply = OK
 
-	case MAP_DONE:
-		fmt.Printf("(coord) WorkerRequestHandler: case MAP_DONE.")
-
-	case REDUCE_DONE:
-		fmt.Printf("(coord) WorkerRequestHandler: case REDUCE_DONE.")
-
 	default:
 	}
 	reply.Reply = OK

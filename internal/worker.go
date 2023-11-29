@@ -490,21 +490,6 @@ func (w *AviaryWorker) callReduceComplete(request *ReduceCompleteRequest, reply 
 	}
 }
 
-// calls the Coordinator's WorkerRequestHandler
-func WorkerCall(request *WorkerRequest, reply *WorkerReply) {
-	fmt.Println("Entered WorkerCall")
-	fmt.Println(*request)
-
-	for {
-		ok := callRPCWithRetry("AviaryCoordinator.WorkerRequestHandler", request, reply, "127.0.0.1", 1234)
-		if ok {
-			fmt.Println("Coordinator replied OK to Worker RPC")
-			return
-		}
-		time.Sleep(time.Second)
-	}
-}
-
 // potential issue: how does coordinator broadcast to all workers?
 // dont think we can reuse the same port
 // but similar to coord, start a thread that listens for RPCs from coordinator
