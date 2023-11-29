@@ -100,6 +100,7 @@ func (c* AviaryCoordinator) ReduceComplete(request *ReduceCompleteRequest, reply
 	c.count++
 	if c.count == 3 {
 		fmt.Printf("[Coordinator] All Reduce tasks complete!!\n")
+		c.count = 0
 	}
 
 	return nil
