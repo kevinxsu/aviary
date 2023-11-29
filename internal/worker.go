@@ -223,12 +223,127 @@ func (w *AviaryWorker) mongoConnection(ch chan bool) {
 	}
 }
 
+func (w *AviaryWorker) handleMap(job CoordinatorRequest) []primitive.ObjectID {
+	fmt.Println("(worker) handling Map task")
+
+	// just create a new connection for now
+	serverAPI := options.ServerAPI(options.ServerAPIVersion1)
+	opts := options.Client().ApplyURI(uri).SetServerAPIOptions(serverAPI)
+	client, err := mongo.Connect(context.TODO(), opts)
+	if err != nil {
+		panic(err)
+	}
+
+	defer func() {
+		if err = client.Disconnect(context.TODO()); err != nil {
+			panic(err)
+		}
+	}()
+
+	var result bson.M
+	if err := client.Database("admin").RunCommand(context.TODO(), bson.D{{"ping", 1}}).Decode(&result); err != nil {
+		panic(err)
+	}
+	fmt.Println("Aviary Worker connected to MongoDB!")
+
+	db := client.Database(job.DatabaseName)
+	collection := db.Collection(job.CollectionName)
+
+	// filter by partition number
+	filter := bson.D{{"partition", job.Partition}}
+
+	// find the stuff
+	cursor, err := collection.Find(context.TODO(), filter)
+	if err != nil {
+		panic(err)
+	}
+
+	var results []InputData
+	if err = cursor.All(context.TODO(), &results); err != nil {
+		panic(err)
+	}
+
+	// for _, result := range results {
+	// 	res, _ := json.Marshal(result)
+	// 	fmt.Println(string(res))
+	// }
+
+	intermediates := make([]KeyValue, 0)
+
+	for _, result := range results {
+		res, _ := json.Marshal(result)
+		contents := string(res)
+
+		// intermediate has type []KeyValue
+		intermediate := w.mapf("", contents)
+		intermediates = append(intermediates, intermediate...)
+	}
+
+	// TODO: fix hardcode
+	nreduce := 3
+	intermediate_files := make([][]KeyValue, nreduce)
+
+	// sort into their bins
+	for _, kv := range intermediates {
+		ikey := ihash(kv.Key) % nreduce
+		intermediate_files[ikey] = append(intermediate_files[ikey], kv)
+	}
+
+	file1 := w.WorkerID.String() + "inter_1.json"
+	file2 := w.WorkerID.String() + "inter_2.json"
+	file3 := w.WorkerID.String() + "inter_3.json"
+	inter_filenames := []string{file1, file2, file3}
+
+	oids := make([]primitive.ObjectID, 0)
+
+	for i, name := range inter_filenames {
+		tempFile, err := os.Create(name)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		// w := io.Writer(tempFile)
+		// enc := json.NewEncoder(w)
+		enc := json.NewEncoder(tempFile)
+		for _, kv := range intermediate_files[i] {
+			err = enc.Encode(&kv)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+		tempFile.Close()
+
+		/* open db connection & upload */
+		grid_opts := options.GridFSBucket().SetName("aviaryIntermediates")
+		bucket, err := gridfs.NewBucket(db, grid_opts)
+		if err != nil {
+			log.Fatal("GridFS NewBucket error: ", err)
+		}
+		tempFile, _ = os.Open(name)
+		objectID, err := bucket.UploadFromStream(name, io.Reader(tempFile))
+		if err != nil {
+			log.Fatal("bucket.UploadFromStream error: ", err)
+		}
+		oids = append(oids, objectID)
+	}
+
+	for _, file := range inter_filenames {
+		os.Remove(file)
+	}
+
+	fmt.Println("Worker " + w.WorkerID.String())
+	for _, oid := range oids {
+		fmt.Println(oid)
+	}
+	return oids
+}
+
 // wait to be assigned a new job from the coordinator
 func (w *AviaryWorker) Start() {
 	for {
 		// await new job
 		job := <-w.requestCh
-		fmt.Printf("Worker got new job: %v\n", job)
+		fmt.Printf("(worker) received new job: %v\n", job)
 
 		// download the map and reduce functions
 		w.downloadCh <- job.FunctionID
@@ -238,123 +353,13 @@ func (w *AviaryWorker) Start() {
 
 		switch job.Phase {
 		case MAP:
-			fmt.Println("(Aviary Worker) case: MAP")
-			// just create a new connection for now
-			serverAPI := options.ServerAPI(options.ServerAPIVersion1)
-			opts := options.Client().ApplyURI(uri).SetServerAPIOptions(serverAPI)
-			client, err := mongo.Connect(context.TODO(), opts)
-			if err != nil {
-				panic(err)
-			}
-
-			defer func() {
-				if err = client.Disconnect(context.TODO()); err != nil {
-					panic(err)
-				}
-			}()
-
-			var result bson.M
-			if err := client.Database("admin").RunCommand(context.TODO(), bson.D{{"ping", 1}}).Decode(&result); err != nil {
-				panic(err)
-			}
-			fmt.Println("Aviary Worker connected to MongoDB!")
-
-			db := client.Database(job.DatabaseName)
-			collection := db.Collection(job.CollectionName)
-
-			// filter by partition number
-			filter := bson.D{{"partition", job.Partition}}
-
-			// find the stuff
-			cursor, err := collection.Find(context.TODO(), filter)
-			if err != nil {
-				panic(err)
-			}
-
-			var results []InputData
-			if err = cursor.All(context.TODO(), &results); err != nil {
-				panic(err)
-			}
-
-			// for _, result := range results {
-			// 	res, _ := json.Marshal(result)
-			// 	fmt.Println(string(res))
-			// }
-
-			intermediates := make([]KeyValue, 0)
-
-			for _, result := range results {
-				res, _ := json.Marshal(result)
-				contents := string(res)
-
-				// intermediate has type []KeyValue
-				intermediate := w.mapf("", contents)
-				intermediates = append(intermediates, intermediate...)
-			}
-
-			// TODO: fix hardcode
-			nreduce := 3
-			intermediate_files := make([][]KeyValue, nreduce)
-
-			// sort into their bins
-			for _, kv := range intermediates {
-				ikey := ihash(kv.Key) % nreduce
-				intermediate_files[ikey] = append(intermediate_files[ikey], kv)
-			}
-
-			file1 := w.WorkerID.String() + "inter_1.json"
-			file2 := w.WorkerID.String() + "inter_2.json"
-			file3 := w.WorkerID.String() + "inter_3.json"
-			inter_filenames := []string{file1, file2, file3}
-
-			obj_ids := make([]primitive.ObjectID, 0)
-
-			for i, name := range inter_filenames {
-				tempFile, err := os.Create(name)
-				if err != nil {
-					log.Fatal(err)
-				}
-
-				// w := io.Writer(tempFile)
-				// enc := json.NewEncoder(w)
-				enc := json.NewEncoder(tempFile)
-				for _, kv := range intermediate_files[i] {
-					err = enc.Encode(&kv)
-					if err != nil {
-						log.Fatal(err)
-					}
-				}
-				tempFile.Close()
-
-				/* open db connection & upload */
-				grid_opts := options.GridFSBucket().SetName("aviaryIntermediates")
-				bucket, err := gridfs.NewBucket(db, grid_opts)
-				if err != nil {
-					log.Fatal("GridFS NewBucket error: ", err)
-				}
-				tempFile, _ = os.Open(name)
-				objectID, err := bucket.UploadFromStream(name, io.Reader(tempFile))
-				if err != nil {
-					log.Fatal("bucket.UploadFromStream error: ", err)
-				}
-				obj_ids = append(obj_ids, objectID)
-			}
-
-			for _, file := range inter_filenames {
-				os.Remove(file)
-			}
-
-			fmt.Println("Worker " + w.WorkerID.String())
-			for _, oid := range obj_ids {
-				fmt.Println(oid)
-			}
-			/************************************************************************/
+			oids := w.handleMap(job)
 
 			// once map task is done, worker needs to notify coordinator
 			request := WorkerRequest{
 				WorkerID:    w.WorkerID,
 				WorkerState: MAP_DONE,
-				OIDs:        obj_ids,
+				OIDs:        oids,
 			}
 			reply := WorkerReply{}
 			WorkerCall(&request, &reply)
