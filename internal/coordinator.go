@@ -363,6 +363,8 @@ type CoordinatorReply struct {
 	Message string
 }
 
+// TODO: these aren't even being called; should they?
+
 // TODO: add slice of active connections to coordinator and concurrently notify all of them
 func (ac *AviaryCoordinator) notifyWorkers(rpcname string, args interface{}, reply interface{}) bool {
 	// TODO: iterate over all the ports in the coordinator slices and concurrently notify workers

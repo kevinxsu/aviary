@@ -94,7 +94,7 @@ func (w *AviaryWorker) subscribe() {
 	reply := WorkerReply{}
 	// keep trying to send until coordinator receives RPC
 	for {
-		ok := workerCall("AviaryCoordinator.WorkerRequestHandler", &request, &reply)
+		ok := callRPCWithRetry("AviaryCoordinator.WorkerRequestHandler", &request, &reply, "127.0.0.1", 1234)
 		if ok {
 			break
 		}
@@ -468,31 +468,9 @@ func (w *AviaryWorker) Start() {
 	}
 }
 
-// TODO: for workers on startup, workers need to send an RPC to the coordinator
-// and provide the coordinator with it's HTTP endpoint
-func workerCall(rpcname string, args interface{}, reply interface{}) bool {
-	var c *rpc.Client
-	var err error
-	for {
-		// continuously loop until worker can contact Coordinator
-		c, err = rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
-		if err == nil {
-			break
-		}
-	}
-	defer c.Close()
-
-	err = c.Call(rpcname, args, reply)
-	if err == nil {
-		return true
-	}
-	log.Fatal(err)
-	return false
-}
-
 func (w *AviaryWorker) callMapComplete(request *MapCompleteRequest, reply *MapCompleteReply) {
 	for {
-		ok := workerCall("AviaryCoordinator.MapComplete", request, reply)
+		ok := callRPCWithRetry("AviaryCoordinator.MapComplete", request, reply, "127.0.0.1", 1234)
 		if ok {
 			fmt.Printf("Coordinator replied OK to MapComplete RPC\n")
 			return
@@ -503,7 +481,7 @@ func (w *AviaryWorker) callMapComplete(request *MapCompleteRequest, reply *MapCo
 
 func (w *AviaryWorker) callReduceComplete(request *ReduceCompleteRequest, reply *ReduceCompleteReply) {
 	for {
-		ok := workerCall("AviaryCoordinator.ReduceComplete", request, reply)
+		ok := callRPCWithRetry("AviaryCoordinator.ReduceComplete", request, reply, "127.0.0.1", 1234)
 		if ok {
 			fmt.Printf("Coordinator replied OK to ReduceComplete RPC\n")
 			return
@@ -518,7 +496,7 @@ func WorkerCall(request *WorkerRequest, reply *WorkerReply) {
 	fmt.Println(*request)
 
 	for {
-		ok := workerCall("AviaryCoordinator.WorkerRequestHandler", request, reply)
+		ok := callRPCWithRetry("AviaryCoordinator.WorkerRequestHandler", request, reply, "127.0.0.1", 1234)
 		if ok {
 			fmt.Println("Coordinator replied OK to Worker RPC")
 			return

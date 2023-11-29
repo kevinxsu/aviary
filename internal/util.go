@@ -108,3 +108,25 @@ func callRPC(rpcname string, args interface{}, reply interface{}, host string,
 	}
 	return true
 }
+
+func callRPCWithRetry(rpcname string, args interface{}, reply interface{},
+	host string, port int) bool {
+	// sockname := coordinatorSock()
+	var c *rpc.Client
+	var err error
+	for {
+		// continuously loop until worker can contact Coordinator
+		c, err = rpc.DialHTTP("tcp", host + ":" + strconv.Itoa(port))
+		if err == nil {
+			break
+		}
+	}
+	defer c.Close()
+
+	err = c.Call(rpcname, args, reply)
+	if err == nil {
+		return true
+	}
+	fmt.Printf("callRPCWithRetry error: %v", err)
+	return false
+}
