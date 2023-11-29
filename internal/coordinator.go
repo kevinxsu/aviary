@@ -54,23 +54,7 @@ func (c *AviaryCoordinator) WorkerRequestHandler(request *WorkerRequest, reply *
 
 		// start reducing
 		if c.count == 3 {
-			// TODO:
-			// go func(c *AviaryCoordinator) {
-			fmt.Println("entered anonymous function")
-			i := 0
-			for _, port := range c.activeConnections {
-				// notify workers about request jobs
-				newRequest := CoordinatorRequest{
-					Phase:          REDUCE,
-					DatabaseName:   "db",
-					CollectionName: "coll",
-					Tag:            "wc",
-					Partition:      i,
-					OIDs:           c.Files[i],
-				}
-				c.notifyWorker(port, &newRequest)
-				i++
-			}
+			go c.broadcastReduceTasks()
 		}
 
 		reply.Reply = OK
@@ -81,6 +65,45 @@ func (c *AviaryCoordinator) WorkerRequestHandler(request *WorkerRequest, reply *
 	default:
 	}
 	reply.Reply = OK
+	return nil
+}
+
+func (c *AviaryCoordinator) broadcastReduceTasks() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	fmt.Printf("[Coordinator] Broadcasting Reduce tasks\n")
+	pk := 0
+	for _, port := range c.activeConnections {
+		// notify workers about request jobs
+		newRequest := CoordinatorRequest{
+			Phase:          REDUCE,
+			DatabaseName:   "db",
+			CollectionName: "coll",
+			Tag:            "wc",
+			Partition:      pk,
+			OIDs: 		    c.Files[pk],
+		}
+		c.notifyWorker(port, &newRequest)
+		pk++
+	}
+}
+
+// NEW RPC HANDLERS to for workers to notify the coordinator that a Map/Reduce job is complete
+func (c* AviaryCoordinator) MapComplete(request *MapCompleteRequest, reply *MapCompleteReply) error {
+	fmt.Println("Entered MapComplete")
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.Files[0] = append(c.Files[0], request.OIDs[0])
+	c.Files[1] = append(c.Files[1], request.OIDs[1])
+	c.Files[2] = append(c.Files[2], request.OIDs[2])
+
+	c.count++
+	if c.count == 3 {
+		go c.broadcastReduceTasks()
+	}
+
 	return nil
 }
 
