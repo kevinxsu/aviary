@@ -17,13 +17,13 @@ import (
 
 // start a thread that listens for RPCs from worker.go
 func (c *AviaryCoordinator) server() {
-	fmt.Println("Entered AviaryCoordinator.server()")
 	rpc.Register(c)
 	rpc.HandleHTTP()
 	l, err := net.Listen("tcp", ":1234")
 	if err != nil {
 		log.Fatal("listen error: ", err)
 	}
+	fmt.Printf("[Server] coordinator listening on port 1234\n")
 	go http.Serve(l, nil)
 }
 
@@ -32,11 +32,10 @@ func (c *AviaryCoordinator) server() {
 // that one handler is waiting needn't prevent the coordinator from processing other RPCs
 
 func (c *AviaryCoordinator) RegisterWorker(request *RegisterWorkerRequest, reply *RegisterWorkerReply) error {
-	fmt.Println("(coord) Entered RegisterWorker")
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	fmt.Printf("(coord) registering worker %d with port %d\n", request.WorkerID, request.WorkerPort)
+	fmt.Printf("[RegisterWorker] registering worker %d with port %d\n", request.WorkerID, request.WorkerPort)
 	c.activeConnections[request.WorkerID] = request.WorkerPort
 	reply.Status = OK
 	return nil
@@ -46,7 +45,7 @@ func (c *AviaryCoordinator) broadcastMapTasks(request *ClerkRequest, jobId int) 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	fmt.Printf("[Coordinator] Broadcasting Map tasks\n")
+	fmt.Printf("[broadcastMapTasks] broadcasting tasks to %v connections\n", len(c.activeConnections))
 	pk := 0
 	for _, port := range c.activeConnections {
 		// notify workers about a new job through RPC calls
@@ -144,14 +143,14 @@ func MakeCoordinator() *AviaryCoordinator {
 
 // main/aviarycoordinator.go calls this function
 func StartCoordinator() {
-	fmt.Println("Entered StartCoordinator")
+	fmt.Println("[StartCoordinator] initializing")
 	c := MakeCoordinator()
 	c.listenForClerkRequests()
 }
 
 func (c *AviaryCoordinator) listenForClerkRequests() {
 	for request := range c.clerkRequestCh { // c.startNewJob(&request)
-		fmt.Printf("clerkRequestCh with %v\n", request)
+		fmt.Printf("[listenForClerkRequests] received clerk request")
 		c.mu.Lock()
 		clientId := request.ClientID
 		// TODO: Generate a random ID for the new job with something like:
@@ -197,7 +196,7 @@ func (c *AviaryCoordinator) mongoConnection(ch chan bool) {
 		// TODO: change so aviary still continues
 		panic(err)
 	}
-	fmt.Println("Aviary Coordinator connected to MongoDB!")
+	fmt.Println("[mongoConnection] coordinator connected to MongoDB!")
 
 	// for now, we'll assume that all the users use one database, called "db"
 	intermediates := client.Database("db").Collection("aviaryIntermediates")
@@ -310,13 +309,12 @@ func (c *AviaryCoordinator) ClerkRequestHandler(request *ClerkRequest, reply *Cl
 
 // notify the worker at the given port about the new job
 func (ac *AviaryCoordinator) notifyWorker(port int, request *CoordinatorRequest) {
-	fmt.Println("(coord) Entered notifyWorker")
-	fmt.Println(request)
+	fmt.Printf("[notifyWorker] sending worker request: %v\n", request);
 	reply := CoordinatorReply{}
 
 	ok := callRPC("AviaryWorker.CoordinatorRequestHandler", request, &reply, "", port)
 	if !ok {
-		log.Fatal("Unable to notify worker\n") // TODO: handle this better
+		log.Fatal("[notifyWorker] unable to notify worker\n") // TODO: handle this better that failing completely
 	}
 }
 

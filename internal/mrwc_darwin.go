@@ -1,7 +1,6 @@
 package aviary
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 	"unicode"
@@ -13,7 +12,6 @@ import (
 // and look only at the contents argument. The return value is a slice
 // of key/value pairs.
 func Map(filename string, contents string) []KeyValue {
-	fmt.Println("Entered Map")
 	// function to detect word separators.
 	ff := func(r rune) bool { return !unicode.IsLetter(r) }
 
@@ -32,7 +30,6 @@ func Map(filename string, contents string) []KeyValue {
 // map tasks, with a list of all the values created for that key by
 // any map task.
 func Reduce(key string, values []string) string {
-	fmt.Println("Entered Reduce")
 	// return the number of occurrences of this word.
 	return strconv.Itoa(len(values))
 }
