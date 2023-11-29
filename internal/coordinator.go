@@ -30,18 +30,15 @@ func (c *AviaryCoordinator) server() {
 // RPC handler for the Aviary Coordinator in distributing out tasks to Aviary Workers
 // Each HTTP request has its own goroutine, i.e. GO runs the handler for each RPC in its own thread, so the fact
 // that one handler is waiting needn't prevent the coordinator from processing other RPCs
-func (c *AviaryCoordinator) WorkerRequestHandler(request *WorkerRequest, reply *WorkerReply) error {
+
+func (c *AviaryCoordinator) RegisterWorker(request *RegisterWorkerRequest, reply *RegisterWorkerReply) error {
+	fmt.Println("(coord) Entered RegisterWorker")
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	switch request.WorkerState {
-	case INIT:
-		fmt.Printf("(coord) WorkerRequestHandler: case INIT. Going to add WorkerPort %d to map.\n", request.WorkerPort)
-		c.activeConnections[request.WorkerID] = request.WorkerPort
-		reply.Reply = OK
 
-	default:
-	}
-	reply.Reply = OK
+	fmt.Printf("(coord) registering worker %d with port %d\n", request.WorkerID, request.WorkerPort)
+	c.activeConnections[request.WorkerID] = request.WorkerPort
+	reply.Status = OK
 	return nil
 }
 

@@ -124,9 +124,9 @@ func callRPCWithRetry(rpcname string, args interface{}, reply interface{},
 	defer c.Close()
 
 	err = c.Call(rpcname, args, reply)
-	if err == nil {
-		return true
+	if err != nil {
+		fmt.Printf("callRPCWithRetry error: %v\n", err)
+		return false
 	}
-	fmt.Printf("callRPCWithRetry error: %v", err)
-	return false
+	return true
 }
