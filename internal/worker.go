@@ -79,22 +79,21 @@ func MakeWorker() *AviaryWorker {
 	w.server()
 
 	// try to send RPC to coordinator to notify it of our port
-	w.subscribe()
+	w.callRegisterWorker()
 
 	return &w
 }
 
 // continuously try to send RPCs to the coordinator to subscribe to messages?
-func (w *AviaryWorker) subscribe() {
-	request := WorkerRequest{
+func (w *AviaryWorker) callRegisterWorker() {
+	request := RegisterWorkerRequest{
 		WorkerID:    w.WorkerID,
-		WorkerState: INIT,
 		WorkerPort:  w.port,
 	}
-	reply := WorkerReply{}
+	reply := RegisterWorkerReply{}
 	// keep trying to send until coordinator receives RPC
 	for {
-		ok := callRPCWithRetry("AviaryCoordinator.WorkerRequestHandler", &request, &reply, "127.0.0.1", 1234)
+		ok := callRPCWithRetry("AviaryCoordinator.RegisterWorker", &request, &reply, "127.0.0.1", 1234)
 		if ok {
 			break
 		}

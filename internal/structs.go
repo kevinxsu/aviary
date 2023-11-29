@@ -48,10 +48,9 @@ type AviaryCoordinator struct {
 
 	context AviaryContext // coordinator's connection with the database
 
-	clerkCh  chan ClerkRequest
-	workerCh chan WorkerRequest
-	insertCh chan bson.D
-	findCh   chan bson.D
+	clerkRequestCh  chan ClerkRequest
+	insertCh 		chan bson.D
+	findCh   		chan bson.D
 
 	activeConnections map[UUID]int // slice of active connections to workers
 

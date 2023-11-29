@@ -122,15 +122,15 @@ func (c* AviaryCoordinator) ReduceComplete(request *ReduceCompleteRequest, reply
 // creates an Aviary Coordinator
 func MakeCoordinator() *AviaryCoordinator {
 	c := AviaryCoordinator{
-		jobs: make(map[int][]Job),
-		counts: make(map[int]int),
-		context: AviaryContext{},
-		clerkCh: make(chan ClerkRequest),
-		insertCh: make(chan bson.D),
-		findCh: make(chan bson.D),
+		jobs: 			   make(map[int][]Job),
+		counts: 		   make(map[int]int),
+		context: 		   AviaryContext{},
+		clerkRequestCh:    make(chan ClerkRequest),
+		insertCh: 		   make(chan bson.D),
+		findCh: 		   make(chan bson.D),
 		activeConnections: make(map[UUID]int),
-		Files: make([][]primitive.ObjectID, 3),
-		count: 0,
+		Files: 			   make([][]primitive.ObjectID, 3),
+		count: 			   0,
 	}
 
 	// establish connection to mongodb first before listening for RPCs
@@ -146,13 +146,12 @@ func MakeCoordinator() *AviaryCoordinator {
 func StartCoordinator() {
 	fmt.Println("Entered StartCoordinator")
 	c := MakeCoordinator()
-	c.Start()
+	c.listenForClerkRequests()
 }
 
-// Long-running goroutine to listen for new requests from the clerk
-func (c *AviaryCoordinator) Start() {
-	for request := range c.clerkCh { // c.startNewJob(&request)
-		fmt.Printf("clerkCh with %v\n", request)
+func (c *AviaryCoordinator) listenForClerkRequests() {
+	for request := range c.clerkRequestCh { // c.startNewJob(&request)
+		fmt.Printf("clerkRequestCh with %v\n", request)
 		c.mu.Lock()
 		clientId := request.ClientID
 		// TODO: Generate a random ID for the new job with something like:
@@ -295,7 +294,7 @@ func (c *AviaryCoordinator) startNewJob(request *ClerkRequest) {
 func (c *AviaryCoordinator) ClerkRequestHandler(request *ClerkRequest, reply *ClerkReply) error {
 	switch request.Type {
 	case JOB:
-		c.clerkCh <- *request
+		c.clerkRequestCh <- *request
 		reply.Message = OK
 
 	// show in progress jobs
