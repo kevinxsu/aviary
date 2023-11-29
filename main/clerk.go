@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"plugin"
+	"runtime"
 	"strings"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -215,14 +216,18 @@ func main() {
 			collName := "coll"
 			tag := "wc"
 
-			tmp, err := compile(filename)
-			if err != nil {
-				log.Fatal(err)
-			}
+			var functionID primitive.ObjectID
 
-			fmt.Printf("about to upload %s to GridFS\n", filename)
-			functionID := uploadPlugin(tmp, clientID)
-			os.Remove(tmp)
+			if runtime.GOOS != "darwin" {
+				tmp, err := compile(filename)
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				fmt.Printf("about to upload %s to GridFS\n", filename)
+				functionID = uploadPlugin(tmp, clientID)
+				os.Remove(tmp)
+			}
 
 			request := aviary.ClerkRequest{
 				Type:           aviary.JOB,

@@ -11,6 +11,7 @@ import (
 	"net/rpc"
 	"os"
 	"plugin"
+	"runtime"
 	"sort"
 	"strconv"
 	"sync"
@@ -172,37 +173,52 @@ func (w *AviaryWorker) mongoConnection(ch chan bool) {
 		case fileID := <-w.downloadCh:
 			fmt.Println("(Aviary Worker) case: downloadCh")
 
-			grid_opts := options.GridFSBucket().SetName("aviaryFuncs")
-			bucket, err := gridfs.NewBucket(db, grid_opts)
-			if err != nil {
-				panic(err)
+			if runtime.GOOS != "darwin" {
+				grid_opts := options.GridFSBucket().SetName("aviaryFuncs")
+				bucket, err := gridfs.NewBucket(db, grid_opts)
+				if err != nil {
+					fmt.Printf("failed here1\n")
+					panic(err)
+				}
+
+				fmt.Println("(worker) opening download stream")
+				downloadStream, err := bucket.OpenDownloadStream(fileID)
+				if err != nil {
+					fmt.Printf("failed while trying to open the download stream\n")
+					panic(err)
+				}
+
+				tmpFilename := "tmp" + w.WorkerID.String() + "lib.so"
+
+				fmt.Printf("(worker) creating tmp file: %s\n", tmpFilename)
+				file, err := os.Create(tmpFilename)
+				if err != nil {
+					fmt.Printf("failed to create the tmp file\n")
+					panic(err)
+				}
+
+				fmt.Printf("(worker) copying downloadStream contents to tmp file\n")
+				_, err = io.Copy(file, downloadStream)
+				if err != nil {
+					fmt.Printf("failed to copy the file\n")
+					panic(err)
+				}
+
+				// file downloaded now. need to update worker's map and reduce functions
+				fmt.Printf("(worker) loading Map/Reduce functions from plugin\n")
+				mapf, reducef := loadPlugin(tmpFilename) // TODO BUG: killed here
+				w.mapf = mapf
+				w.reducef = reducef
+
+				defer downloadStream.Close()
+				defer file.Close()
+			} else {
+				fmt.Printf("Skipping download step for macOS")
+				w.mapf = Map
+				w.reducef = Reduce
 			}
 
-			downloadStream, err := bucket.OpenDownloadStream(fileID)
-			if err != nil {
-				panic(err)
-			}
-
-			tmpFilename := "tmp" + w.WorkerID.String() + "lib.so"
-
-			file, err := os.Create(tmpFilename)
-			if err != nil {
-				panic(err)
-			}
-
-			_, err = io.Copy(file, downloadStream)
-			if err != nil {
-				panic(err)
-			}
-
-			// file downloaded now. need to update worker's map and reduce functiosn
-			mapf, reducef := loadPlugin(tmpFilename)
-			w.mapf = mapf
-			w.reducef = reducef
 			w.startCh <- true
-
-			defer downloadStream.Close()
-			defer file.Close()
 		}
 	}
 }
