@@ -338,6 +338,95 @@ func (w *AviaryWorker) handleMap(job CoordinatorRequest) []primitive.ObjectID {
 	return oids
 }
 
+func (w *AviaryWorker) handleReduce(job CoordinatorRequest) {
+	fmt.Println("(worker) case: REDUCE")
+
+	// files to download from gridfs
+	oids := job.OIDs
+	fmt.Println("OIDs")
+	for _, oid := range oids {
+		fmt.Println(oid)
+	}
+
+	keyvalues := make([]KeyValue, 0)
+
+	// download the file contents
+	for _, oid := range oids {
+		// start new context
+		serverAPI := options.ServerAPI(options.ServerAPIVersion1)
+		opts := options.Client().ApplyURI(uri).SetServerAPIOptions(serverAPI)
+		client, err := mongo.Connect(context.TODO(), opts)
+		if err != nil {
+			panic(err)
+		}
+		defer func() {
+			if err = client.Disconnect(context.TODO()); err != nil {
+				panic(err)
+			}
+		}()
+		var result bson.M
+		if err := client.Database("admin").RunCommand(context.TODO(), bson.D{{"ping", 1}}).Decode(&result); err != nil {
+			panic(err)
+		}
+		fmt.Println("Aviary Worker connected to MongoDB!")
+		db := client.Database(job.DatabaseName)
+		grid_opts := options.GridFSBucket().SetName("aviaryIntermediates")
+		bucket, err := gridfs.NewBucket(db, grid_opts)
+		if err != nil {
+			panic(err)
+		}
+
+		downloadStream, err := bucket.OpenDownloadStream(oid)
+		if err != nil {
+			panic(err)
+		}
+
+		dec := json.NewDecoder(downloadStream)
+
+		for {
+			var kv KeyValue
+			if err := dec.Decode(&kv); err != nil {
+				break
+			}
+			keyvalues = append(keyvalues, kv)
+		}
+
+		downloadStream.Close()
+	}
+
+	// sort
+	// kva filled with the values of the first intermediate, need to sort
+	// "shuffle" step
+	sort.Sort(ByKey(keyvalues))
+
+	filename := "reduce" + strconv.Itoa(job.Partition) + ".json"
+	tempFile, err := os.Create(filename)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer tempFile.Close()
+
+	// now combine the values of the same keys
+	i := 0
+	for i < len(keyvalues) {
+		j := i + 1
+		for j < len(keyvalues) && keyvalues[j].Key == keyvalues[i].Key {
+			j++
+		}
+		coalescedValues := []string{}
+		for k := i; k < j; k++ {
+			coalescedValues = append(coalescedValues, keyvalues[k].Value)
+		}
+		reducefOutput := w.reducef(keyvalues[i].Key, coalescedValues)
+		// print it into the file
+		fmt.Fprintf(tempFile, "%v %v\n", keyvalues[i].Key, reducefOutput)
+		i = j
+	}
+
+	// remove the *.so file
+	os.Remove("tmp" + w.WorkerID.String() + "lib.so")
+}
+
 // wait to be assigned a new job from the coordinator
 func (w *AviaryWorker) Start() {
 	for {
@@ -445,92 +534,7 @@ func (w *AviaryWorker) CoordinatorRequestHandler(request *CoordinatorRequest, re
 		return nil
 
 	case REDUCE:
-		fmt.Println("(worker) case: REDUCE")
-
-		// files to download from gridfs
-		oids := request.OIDs
-		fmt.Println("OIDs")
-		for _, oid := range oids {
-			fmt.Println(oid)
-		}
-
-		keyvalues := make([]KeyValue, 0)
-
-		// download the file contents
-		for _, oid := range oids {
-			// start new context
-			serverAPI := options.ServerAPI(options.ServerAPIVersion1)
-			opts := options.Client().ApplyURI(uri).SetServerAPIOptions(serverAPI)
-			client, err := mongo.Connect(context.TODO(), opts)
-			if err != nil {
-				panic(err)
-			}
-			defer func() {
-				if err = client.Disconnect(context.TODO()); err != nil {
-					panic(err)
-				}
-			}()
-			var result bson.M
-			if err := client.Database("admin").RunCommand(context.TODO(), bson.D{{"ping", 1}}).Decode(&result); err != nil {
-				panic(err)
-			}
-			fmt.Println("Aviary Worker connected to MongoDB!")
-			db := client.Database(request.DatabaseName)
-			grid_opts := options.GridFSBucket().SetName("aviaryIntermediates")
-			bucket, err := gridfs.NewBucket(db, grid_opts)
-			if err != nil {
-				panic(err)
-			}
-
-			downloadStream, err := bucket.OpenDownloadStream(oid)
-			if err != nil {
-				panic(err)
-			}
-
-			dec := json.NewDecoder(downloadStream)
-
-			for {
-				var kv KeyValue
-				if err := dec.Decode(&kv); err != nil {
-					break
-				}
-				keyvalues = append(keyvalues, kv)
-			}
-
-			downloadStream.Close()
-		}
-
-		// sort
-		// kva filled with the values of the first intermediate, need to sort
-		// "shuffle" step
-		sort.Sort(ByKey(keyvalues))
-
-		filename := "reduce" + strconv.Itoa(request.Partition) + ".json"
-		tempFile, err := os.Create(filename)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer tempFile.Close()
-
-		// now combine the values of the same keys
-		i := 0
-		for i < len(keyvalues) {
-			j := i + 1
-			for j < len(keyvalues) && keyvalues[j].Key == keyvalues[i].Key {
-				j++
-			}
-			coalescedValues := []string{}
-			for k := i; k < j; k++ {
-				coalescedValues = append(coalescedValues, keyvalues[k].Value)
-			}
-			reducefOutput := w.reducef(keyvalues[i].Key, coalescedValues)
-			// print it into the file
-			fmt.Fprintf(tempFile, "%v %v\n", keyvalues[i].Key, reducefOutput)
-			i = j
-		}
-
-		// remove the *.so file
-		os.Remove("tmp" + w.WorkerID.String() + "lib.so")
+		w.handleReduce(*request)
 
 		reply.Reply = OK
 		return nil
