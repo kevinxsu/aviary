@@ -333,6 +333,8 @@ type CoordinatorRequest struct {
 	OIDs []primitive.ObjectID
 }
 
+// TODO: maybe write a String() method for CoordinatorRequest
+
 type CoordinatorReply struct {
 	Reply   string
 	Message string

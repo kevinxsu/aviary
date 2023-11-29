@@ -25,6 +25,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+// TODO: close files after each run? (or just in general)
+
 type AviaryWorker struct {
 	WorkerID   UUID       // the worker's identifier
 	InProgress []Job      // inprogress jobs (want to allow for concurrent jobs)
@@ -82,6 +84,9 @@ func MakeWorker() *AviaryWorker {
 
 	return &w
 }
+
+// TODO: for workers on startup, workers need to send an RPC to the coordinator
+// and provide the coordinator with it's HTTP endpoint
 
 // continuously try to send RPCs to the coordinator to subscribe to messages?
 func (w *AviaryWorker) callRegisterWorker() {
@@ -238,6 +243,7 @@ func (w *AviaryWorker) handleMap(job CoordinatorRequest) []primitive.ObjectID {
 		}
 	}()
 
+	// TODO: is there a reason why workers need to connect (and disconnect) each time it processes a task?
 	var result bson.M
 	if err := client.Database("admin").RunCommand(context.TODO(), bson.D{{"ping", 1}}).Decode(&result); err != nil {
 		panic(err)
