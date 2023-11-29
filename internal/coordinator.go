@@ -42,22 +42,6 @@ func (c *AviaryCoordinator) WorkerRequestHandler(request *WorkerRequest, reply *
 
 	case MAP_DONE:
 		fmt.Printf("(coord) WorkerRequestHandler: case MAP_DONE.")
-		// incr count
-		c.count++
-
-		// append to c.Files
-		// c.Files = append(c.Files, request.OIDs...)
-
-		c.Files[0] = append(c.Files[0], request.OIDs[0])
-		c.Files[1] = append(c.Files[1], request.OIDs[1])
-		c.Files[2] = append(c.Files[2], request.OIDs[2])
-
-		// start reducing
-		if c.count == 3 {
-			go c.broadcastReduceTasks()
-		}
-
-		reply.Reply = OK
 
 	case REDUCE_DONE:
 		fmt.Printf("(coord) WorkerRequestHandler: case REDUCE_DONE.")
@@ -82,7 +66,7 @@ func (c *AviaryCoordinator) broadcastReduceTasks() {
 			CollectionName: "coll",
 			Tag:            "wc",
 			Partition:      pk,
-			OIDs: 		    c.Files[pk],
+			OIDs: 		    c.Files[pk], // TODO: this sometimes goes out of range when the workers rejoin (index 3 of size 3)
 		}
 		c.notifyWorker(port, &newRequest)
 		pk++

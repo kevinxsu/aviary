@@ -445,13 +445,12 @@ func (w *AviaryWorker) Start() {
 			oids := w.handleMap(job)
 
 			// once map task is done, worker needs to notify coordinator
-			request := WorkerRequest{
-				WorkerID:    w.WorkerID,
-				WorkerState: MAP_DONE,
-				OIDs:        oids,
+			request := MapCompleteRequest{
+				WorkerID: w.WorkerID,
+				OIDs:     oids,
 			}
-			reply := WorkerReply{}
-			WorkerCall(&request, &reply)
+			reply := MapCompleteReply{}
+			w.callMapComplete(&request, &reply)
 
 			/************************************************************************/
 
@@ -483,6 +482,17 @@ func workerCall(rpcname string, args interface{}, reply interface{}) bool {
 	}
 	log.Fatal(err)
 	return false
+}
+
+func (w *AviaryWorker) callMapComplete(request *MapCompleteRequest, reply *MapCompleteReply) {
+	for {
+		ok := workerCall("AviaryCoordinator.MapComplete", request, reply)
+		if ok {
+			fmt.Printf("Coordinator replied OK to MapComplete RPC\n")
+			return
+		}
+		time.Sleep(time.Second)
+	}
 }
 
 // calls the Coordinator's WorkerRequestHandler

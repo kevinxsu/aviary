@@ -62,3 +62,13 @@ type ClerkReply struct {
 	Message ReplyType // coordinator response message
 	Jobs    []Job     // in-progress jobs
 }
+
+// RPC structs for workers and the coordinator
+type MapCompleteRequest struct {
+	WorkerID UUID
+	OIDs     []primitive.ObjectID
+}
+
+type MapCompleteReply struct {
+	Status ReplyType
+}
