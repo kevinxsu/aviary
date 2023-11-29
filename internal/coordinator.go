@@ -71,6 +71,7 @@ func (c *AviaryCoordinator) broadcastReduceTasks() {
 		c.notifyWorker(port, &newRequest)
 		pk++
 	}
+	c.count = 0
 }
 
 // NEW RPC HANDLERS to for workers to notify the coordinator that a Map/Reduce job is complete
@@ -90,6 +91,20 @@ func (c* AviaryCoordinator) MapComplete(request *MapCompleteRequest, reply *MapC
 
 	return nil
 }
+
+func (c* AviaryCoordinator) ReduceComplete(request *ReduceCompleteRequest, reply *ReduceCompleteReply) error {
+	fmt.Println("Entered ReduceComplete")
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.count++
+	if c.count == 3 {
+		fmt.Printf("[Coordinator] All Reduce tasks complete!!\n")
+	}
+
+	return nil
+}
+
 
 // the Aviary Coordinator struct
 

@@ -456,6 +456,12 @@ func (w *AviaryWorker) Start() {
 
 		case REDUCE:
 			fmt.Println("(Aviary Worker) case: REDUCE")
+			w.handleReduce(job)
+
+			// once reduce task is done, worker needs to notify coordinator
+			request := ReduceCompleteRequest{}
+			reply := ReduceCompleteReply{}
+			w.callReduceComplete(&request, &reply)
 
 		default:
 		}
@@ -489,6 +495,17 @@ func (w *AviaryWorker) callMapComplete(request *MapCompleteRequest, reply *MapCo
 		ok := workerCall("AviaryCoordinator.MapComplete", request, reply)
 		if ok {
 			fmt.Printf("Coordinator replied OK to MapComplete RPC\n")
+			return
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+func (w *AviaryWorker) callReduceComplete(request *ReduceCompleteRequest, reply *ReduceCompleteReply) {
+	for {
+		ok := workerCall("AviaryCoordinator.ReduceComplete", request, reply)
+		if ok {
+			fmt.Printf("Coordinator replied OK to ReduceComplete RPC\n")
 			return
 		}
 		time.Sleep(time.Second)
@@ -537,16 +554,16 @@ func (w *AviaryWorker) CoordinatorRequestHandler(request *CoordinatorRequest, re
 	fmt.Println(*request)
 	switch request.Phase {
 	case MAP:
-		fmt.Println("(worker) case: MAP")
+		fmt.Println("(worker) Pushing Map task on the channel")
 		w.requestCh <- *request
 		// TODO: bug, immediate return of nil !=> request processed correctly
 		reply.Message = OK
 		return nil
 
 	case REDUCE:
-		w.handleReduce(*request)
-
-		reply.Reply = OK
+		fmt.Println("(worker) Pushing Reduce task on the channel")
+		w.requestCh <- *request
+		reply.Message = OK
 		return nil
 
 	default:

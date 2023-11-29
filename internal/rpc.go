@@ -72,3 +72,7 @@ type MapCompleteRequest struct {
 type MapCompleteReply struct {
 	Status ReplyType
 }
+
+type ReduceCompleteRequest struct {}
+
+type ReduceCompleteReply struct {}
