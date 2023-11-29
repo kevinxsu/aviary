@@ -42,6 +42,28 @@ func (c *AviaryCoordinator) RegisterWorker(request *RegisterWorkerRequest, reply
 	return nil
 }
 
+func (c *AviaryCoordinator) broadcastMapTasks(request *ClerkRequest, jobId int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	fmt.Printf("[Coordinator] Broadcasting Map tasks\n")
+	pk := 0
+	for _, port := range c.activeConnections {
+		// notify workers about a new job through RPC calls
+		newRequest := CoordinatorRequest{
+			Phase:          MAP,
+			DatabaseName:   request.DatabaseName,
+			CollectionName: request.CollectionName,
+			Tag:            request.Tag,
+			FunctionID:     request.FunctionID,
+			Partition:      pk,
+			JobID:          jobId,
+		}
+		go c.notifyWorker(port, &newRequest)
+		pk++
+	}
+}
+
 func (c *AviaryCoordinator) broadcastReduceTasks() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -141,44 +163,25 @@ func (c *AviaryCoordinator) Start() {
 		select {
 		case request := <-c.clerkCh: // c.startNewJob(&request)
 			fmt.Printf("clerkCh with %v\n", request)
-			go func() {
-				c.mu.Lock()
-				defer c.mu.Unlock()
-				clientID := request.ClientID
-				// generate a random id for the new job
-				jobID := c.counts[clientID] // vs. jobID := IHash((c._gensym()).String())
-				c.counts[clientID]++
+			c.mu.Lock()
+			clientId := request.ClientID
+			// TODO: Generate a random ID for the new job with something like:
+			// jobID := IHash((c._gensym()).String())
+			jobId := c.counts[clientId]
+			c.counts[clientId]++
+			c.jobs[clientId] = append(c.jobs[clientId], Job{
+				JobID:          jobId,
+				State:          PENDING,
+				Completed:      make([]int, 0),
+				Ongoing:        make([]int, 1),
+				DatabaseName:   request.DatabaseName,
+				CollectionName: request.CollectionName,
+				Tag:            request.Tag,
+				FunctionID:     request.FunctionID,
+			})
+			c.mu.Unlock()
 
-				// insert a new job into the client's list of jobs
-				c.jobs[clientID] = append(c.jobs[clientID], Job{
-					JobID:          jobID,
-					State:          PENDING,
-					Completed:      make([]int, 0),
-					Ongoing:        make([]int, 1),
-					DatabaseName:   request.DatabaseName,
-					CollectionName: request.CollectionName,
-					Tag:            request.Tag,
-					FunctionID:     request.FunctionID,
-				})
-
-				fmt.Println("worker ports: ", c.activeConnections)
-
-				i := 0
-				for _, port := range c.activeConnections {
-					// notify workers about a new job through RPC calls
-					newRequest := CoordinatorRequest{
-						Phase:          MAP,
-						DatabaseName:   request.DatabaseName,
-						CollectionName: request.CollectionName,
-						Tag:            request.Tag,
-						FunctionID:     request.FunctionID,
-						Partition:      i,
-						JobID:          jobID,
-					}
-					go c.notifyWorker(port, &newRequest)
-					i++
-				}
-			}()
+			c.broadcastMapTasks(&request, jobId)
 
 		// a worker notification
 		case request := <-c.workerCh:
@@ -352,31 +355,4 @@ type CoordinatorRequest struct {
 type CoordinatorReply struct {
 	Reply   string
 	Message string
-}
-
-// TODO: these aren't even being called; should they?
-
-// TODO: add slice of active connections to coordinator and concurrently notify all of them
-func (ac *AviaryCoordinator) notifyWorkers(rpcname string, args interface{}, reply interface{}) bool {
-	// TODO: iterate over all the ports in the coordinator slices and concurrently notify workers
-
-	fmt.Println("(coord) Entered notifyWorkers()")
-	fmt.Println(ac.activeConnections)
-
-	for _, port := range ac.activeConnections {
-		if ok := callRPC(rpcname, args, reply, "", port); !ok {
-			return false
-		}
-	}
-	return true
-}
-
-// TODO:
-// coordinator notifies workers about a new job (calls notifyWorkers())
-func (c *AviaryCoordinator) CoordinatorCall(request *CoordinatorRequest, reply *CoordinatorReply) error {
-	ok := c.notifyWorkers("AviaryWorker.CoordinatorRequestHandler", request, reply)
-	if !ok {
-		fmt.Println("something went wrong with trying to send rpc from coord to worker")
-	}
-	return nil
 }
