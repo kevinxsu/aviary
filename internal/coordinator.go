@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"net/rpc"
-	"strconv"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -338,14 +337,9 @@ func (ac *AviaryCoordinator) notifyWorker(port int, request *CoordinatorRequest)
 	fmt.Println(request)
 	reply := CoordinatorReply{}
 
-	c, err := rpc.DialHTTP("tcp", ":"+strconv.Itoa(port))
-	if err != nil {
-		log.Fatal("dialing: ", err)
-	}
-	defer c.Close()
-	err = c.Call("AviaryWorker.CoordinatorRequestHandler", request, &reply)
-	if err != nil {
-		log.Fatal("err in notifyWorker: ", err)
+	ok := callRPC("AviaryWorker.CoordinatorRequestHandler", request, &reply, "", port)
+	if !ok {
+		log.Fatal("Unable to notify worker\n") // TODO: handle this better
 	}
 }
 
@@ -377,13 +371,7 @@ func (ac *AviaryCoordinator) notifyWorkers(rpcname string, args interface{}, rep
 	fmt.Println(ac.activeConnections)
 
 	for _, port := range ac.activeConnections {
-		c, err := rpc.DialHTTP("tcp", ":"+strconv.Itoa(port))
-		if err != nil {
-			log.Fatal("dialing: ", err)
-		}
-		defer c.Close()
-		err = c.Call(rpcname, args, reply)
-		if err != nil {
+		if ok := callRPC(rpcname, args, reply, "", port); !ok {
 			return false
 		}
 	}

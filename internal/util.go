@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"hash/fnv"
 	"math/rand"
+	"net/rpc"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -85,4 +87,24 @@ func getRandomName() string {
 		buf[i], buf[j] = buf[j], buf[i]
 	})
 	return string(buf)
+}
+
+func callRPC(rpcname string, args interface{}, reply interface{}, host string,
+	port int) bool {
+	// sockname := coordinatorSock()
+	// TODO: add support for retries
+
+	c, err := rpc.DialHTTP("tcp", host + ":" + strconv.Itoa(port))
+	if err != nil {
+		fmt.Printf("callRPC error: %v", err)
+		return false
+	}
+	defer c.Close()
+
+	err = c.Call(rpcname, args, reply)
+	if err != nil {
+		fmt.Printf("callRPC error: %v", err)
+		return false
+	}
+	return true
 }
