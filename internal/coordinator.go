@@ -123,23 +123,18 @@ func (c* AviaryCoordinator) ReduceComplete(request *ReduceCompleteRequest, reply
 
 // creates an Aviary Coordinator
 func MakeCoordinator() *AviaryCoordinator {
-	c := AviaryCoordinator{}
-	c.jobs = make(map[int][]Job)
-	c.clerkCh = make(chan ClerkRequest)
-	c.workerCh = make(chan WorkerRequest)
-
-	c.insertCh = make(chan bson.D)
-	c.findCh = make(chan bson.D)
-
-	c.activeConnections = make(map[UUID]int)
-
-	// invariant count = len(c.files)
-	c.count = 0
-	// c.Files = make([]primitive.ObjectID, 0)
-	c.Files = make([][]primitive.ObjectID, 3)
-	c.counts = make(map[int]int)
-
-	c.context = AviaryContext{}
+	c := AviaryCoordinator{
+		jobs: make(map[int][]Job),
+		counts: make(map[int]int),
+		context: AviaryContext{},
+		clerkCh: make(chan ClerkRequest),
+		workerCh: make(chan WorkerRequest),
+		insertCh: make(chan bson.D),
+		findCh: make(chan bson.D),
+		activeConnections: make(map[UUID]int),
+		Files: make([][]primitive.ObjectID, 3),
+		count: 0,
+	}
 
 	// establish connection to mongodb first before listening for RPCs
 	ch := make(chan bool)
