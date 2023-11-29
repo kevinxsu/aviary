@@ -88,7 +88,6 @@ func (c *AviaryCoordinator) broadcastReduceTasks() {
 
 // NEW RPC HANDLERS to for workers to notify the coordinator that a Map/Reduce job is complete
 func (c* AviaryCoordinator) MapComplete(request *MapCompleteRequest, reply *MapCompleteReply) error {
-	fmt.Println("Entered MapComplete")
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -105,7 +104,6 @@ func (c* AviaryCoordinator) MapComplete(request *MapCompleteRequest, reply *MapC
 }
 
 func (c* AviaryCoordinator) ReduceComplete(request *ReduceCompleteRequest, reply *ReduceCompleteReply) error {
-	fmt.Println("Entered ReduceComplete")
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -128,7 +126,6 @@ func MakeCoordinator() *AviaryCoordinator {
 		counts: make(map[int]int),
 		context: AviaryContext{},
 		clerkCh: make(chan ClerkRequest),
-		workerCh: make(chan WorkerRequest),
 		insertCh: make(chan bson.D),
 		findCh: make(chan bson.D),
 		activeConnections: make(map[UUID]int),
@@ -152,37 +149,29 @@ func StartCoordinator() {
 	c.Start()
 }
 
-// continuously poll for new requests
+// Long-running goroutine to listen for new requests from the clerk
 func (c *AviaryCoordinator) Start() {
-	for {
-		select {
-		case request := <-c.clerkCh: // c.startNewJob(&request)
-			fmt.Printf("clerkCh with %v\n", request)
-			c.mu.Lock()
-			clientId := request.ClientID
-			// TODO: Generate a random ID for the new job with something like:
-			// jobID := IHash((c._gensym()).String())
-			jobId := c.counts[clientId]
-			c.counts[clientId]++
-			c.jobs[clientId] = append(c.jobs[clientId], Job{
-				JobID:          jobId,
-				State:          PENDING,
-				Completed:      make([]int, 0),
-				Ongoing:        make([]int, 1),
-				DatabaseName:   request.DatabaseName,
-				CollectionName: request.CollectionName,
-				Tag:            request.Tag,
-				FunctionID:     request.FunctionID,
-			})
-			c.mu.Unlock()
+	for request := range c.clerkCh { // c.startNewJob(&request)
+		fmt.Printf("clerkCh with %v\n", request)
+		c.mu.Lock()
+		clientId := request.ClientID
+		// TODO: Generate a random ID for the new job with something like:
+		// jobID := IHash((c._gensym()).String())
+		jobId := c.counts[clientId]
+		c.counts[clientId]++
+		c.jobs[clientId] = append(c.jobs[clientId], Job{
+			JobID:          jobId,
+			State:          PENDING,
+			Completed:      make([]int, 0),
+			Ongoing:        make([]int, 1),
+			DatabaseName:   request.DatabaseName,
+			CollectionName: request.CollectionName,
+			Tag:            request.Tag,
+			FunctionID:     request.FunctionID,
+		})
+		c.mu.Unlock()
 
-			c.broadcastMapTasks(&request, jobId)
-
-		// a worker notification
-		case request := <-c.workerCh:
-			fmt.Printf("workerCh with %v\n", request)
-			// TODO: give Worker W more tasks after coordinator receives a notification from W
-		}
+		c.broadcastMapTasks(&request, jobId)
 	}
 }
 
