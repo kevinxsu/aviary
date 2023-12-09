@@ -91,8 +91,8 @@ func MakeWorker() *AviaryWorker {
 // continuously try to send RPCs to the coordinator to subscribe to messages?
 func (w *AviaryWorker) callRegisterWorker() {
 	request := RegisterWorkerRequest{
-		WorkerID:    w.WorkerID,
-		WorkerPort:  w.port,
+		WorkerID:   w.WorkerID,
+		WorkerPort: w.port,
 	}
 	reply := RegisterWorkerReply{}
 	// keep trying to send until coordinator receives RPC
@@ -103,7 +103,7 @@ func (w *AviaryWorker) callRegisterWorker() {
 		}
 		time.Sleep(time.Second)
 	}
-	fmt.Printf("[callRegisterWorker] worker %v successfully subscribed to Coordinator!\n", w.WorkerID)
+	fmt.Printf("[callRegisterWorker] worker %v successfully subscribed to Coordinator!\n\n", w.WorkerID)
 }
 
 func loadPlugin(filename string) (func(string, string) []KeyValue, func(string, []string) string) {
@@ -149,7 +149,7 @@ func (w *AviaryWorker) mongoConnection(ch chan bool) {
 	if err := client.Database("admin").RunCommand(context.TODO(), bson.D{{"ping", 1}}).Decode(&result); err != nil {
 		panic(err)
 	}
-	fmt.Println("[mongoConnection] worker successfully connected to MongoDB!")
+	fmt.Printf("[mongoConnection] worker successfully connected to MongoDB!\n\n")
 
 	db := client.Database("db")
 	collection := db.Collection("coll")
@@ -158,7 +158,7 @@ func (w *AviaryWorker) mongoConnection(ch chan bool) {
 	for {
 		select {
 		case filter := <-w.findCh:
-			fmt.Println("Case: filter := <-w.findCh")
+			fmt.Printf("Case: filter := <-w.findCh\n\n")
 			ctxt, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
@@ -166,7 +166,7 @@ func (w *AviaryWorker) mongoConnection(ch chan bool) {
 			err := collection.FindOne(ctxt, filter).Decode(&res)
 			if err != nil {
 				if err == mongo.ErrNoDocuments {
-					fmt.Println("WARNING: Aviary Worker couldn't find documents")
+					fmt.Printf("WARNING: Aviary Worker couldn't find documents\n\n")
 					continue
 				}
 				log.Fatal("mongo find error: ", err)
@@ -174,7 +174,7 @@ func (w *AviaryWorker) mongoConnection(ch chan bool) {
 			fmt.Printf("Worker found %v\n", res)
 
 		case fileID := <-w.downloadCh:
-			fmt.Println("[mongoConnection] downloading file from GridFS]")
+			fmt.Printf("[mongoConnection] downloading file from GridFS]\n\n")
 
 			if runtime.GOOS != "darwin" {
 				grid_opts := options.GridFSBucket().SetName("aviaryFuncs")
@@ -217,8 +217,8 @@ func (w *AviaryWorker) mongoConnection(ch chan bool) {
 				defer file.Close()
 			} else {
 				fmt.Printf("[mongoConnection] skipping download step for macOS")
-				w.mapf = Map
-				w.reducef = Reduce
+				// w.mapf = Map
+				// w.reducef = Reduce
 			}
 
 			w.startCh <- true
@@ -227,7 +227,7 @@ func (w *AviaryWorker) mongoConnection(ch chan bool) {
 }
 
 func (w *AviaryWorker) handleMap(job CoordinatorRequest) []primitive.ObjectID {
-	fmt.Println("[handleMap] starting to process Map task")
+	fmt.Printf("[handleMap] starting to process Map task\n\n")
 
 	// just create a new connection for now
 	serverAPI := options.ServerAPI(options.ServerAPIVersion1)
@@ -248,7 +248,7 @@ func (w *AviaryWorker) handleMap(job CoordinatorRequest) []primitive.ObjectID {
 	if err := client.Database("admin").RunCommand(context.TODO(), bson.D{{"ping", 1}}).Decode(&result); err != nil {
 		panic(err)
 	}
-	fmt.Println("[handleMap] worker connected to MongoDB!")
+	fmt.Printf("[handleMap] worker connected to MongoDB!\n\n")
 
 	db := client.Database(job.DatabaseName)
 	collection := db.Collection(job.CollectionName)
@@ -340,11 +340,11 @@ func (w *AviaryWorker) handleMap(job CoordinatorRequest) []primitive.ObjectID {
 }
 
 func (w *AviaryWorker) handleReduce(job CoordinatorRequest) {
-	fmt.Printf("[handleReduce] starting to process Reduce task\n")
+	fmt.Printf("[handleReduce] starting to process Reduce task\n\n")
 
 	// files to download from gridfs
 	oids := job.OIDs
-	fmt.Printf("[handleReduce] processing OIDs: %v\n", oids)
+	fmt.Printf("[handleReduce] processing OIDs: %v\n\n", oids)
 
 	keyvalues := make([]KeyValue, 0)
 
@@ -366,7 +366,7 @@ func (w *AviaryWorker) handleReduce(job CoordinatorRequest) {
 		if err := client.Database("admin").RunCommand(context.TODO(), bson.D{{"ping", 1}}).Decode(&result); err != nil {
 			panic(err)
 		}
-		fmt.Println("[handleReduce] worker connected to MongoDB!")
+		fmt.Printf("[handleReduce] worker connected to MongoDB!\n\n")
 		db := client.Database(job.DatabaseName)
 		grid_opts := options.GridFSBucket().SetName("aviaryIntermediates")
 		bucket, err := gridfs.NewBucket(db, grid_opts)
@@ -430,16 +430,21 @@ func (w *AviaryWorker) Start() {
 	for {
 		// await new job
 		job := <-w.requestCh
-		fmt.Printf("[Start] worker received new job: %v\n", job)
+		fmt.Printf("[Start] worker received new job: %v\n\n", job)
 
-		// download the map and reduce functions
-		w.downloadCh <- job.FunctionID
+		/*
+			// download the map and reduce functions
+			w.downloadCh <- job.FunctionID
 
-		// block until the channel
-		<-w.startCh
+			// block until the channel
+			<-w.startCh
+		*/
 
 		switch job.Phase {
 		case MAP:
+			w.downloadCh <- job.FunctionID
+			<-w.startCh
+
 			oids := w.handleMap(job)
 
 			// once map task is done, worker needs to notify coordinator
@@ -469,7 +474,7 @@ func (w *AviaryWorker) callMapComplete(request *MapCompleteRequest, reply *MapCo
 	for {
 		ok := callRPCWithRetry("AviaryCoordinator.MapComplete", request, reply, "127.0.0.1", 1234)
 		if ok {
-			fmt.Printf("[callMapComplete] coordinator replied OK to MapComplete RPC\n")
+			fmt.Printf("[callMapComplete] coordinator replied OK to MapComplete RPC\n\n")
 			return
 		}
 		time.Sleep(time.Second)
@@ -480,7 +485,7 @@ func (w *AviaryWorker) callReduceComplete(request *ReduceCompleteRequest, reply 
 	for {
 		ok := callRPCWithRetry("AviaryCoordinator.ReduceComplete", request, reply, "127.0.0.1", 1234)
 		if ok {
-			fmt.Printf("[callMapComplete] coordinator replied OK to ReduceComplete RPC\n")
+			fmt.Printf("[callMapComplete] coordinator replied OK to ReduceComplete RPC\n\n")
 			return
 		}
 		time.Sleep(time.Second)
@@ -510,18 +515,17 @@ func (w *AviaryWorker) server() {
 
 // Worker's RPC handler for Coordinator notifications
 func (w *AviaryWorker) CoordinatorRequestHandler(request *CoordinatorRequest, reply *CoordinatorReply) error {
-	fmt.Println("[CoordinatorRequestHandler] received RPC from Coordinator")
-	// fmt.Println(*request)
+	fmt.Printf("[CoordinatorRequestHandler] received RPC from Coordinator\n\n")
 	switch request.Phase {
 	case MAP:
-		fmt.Println("[CoordinatorRequestHandler] pushing Map task on the channel")
+		fmt.Printf("[CoordinatorRequestHandler] pushing Map task on the channel\n\n")
 		w.requestCh <- *request
 		// TODO: bug, immediate return of nil !=> request processed correctly
 		reply.Message = OK
 		return nil
 
 	case REDUCE:
-		fmt.Println("[CoordinatorRequestHandler] pushing Reduce task on the channel")
+		fmt.Printf("[CoordinatorRequestHandler] pushing Reduce task on the channel\n\n")
 		w.requestCh <- *request
 		reply.Message = OK
 		return nil
@@ -544,6 +548,8 @@ type WorkerRequest struct {
 	WorkerID    UUID
 	WorkerState Phase
 	WorkerPort  int // if INIT Phase, should only be WorkerID, WorkerState, and WorkerPort
+
+	// TODO: add JobID associated with a request (needs to come from the Coordinator)
 
 	// the id of the intermediate data from Map phase (stored in GridFS)
 	// ObjectID primitive.ObjectID

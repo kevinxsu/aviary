@@ -45,7 +45,7 @@ func (c *AviaryCoordinator) broadcastMapTasks(request *ClerkRequest, jobId int) 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	fmt.Printf("[broadcastMapTasks] broadcasting tasks to %v connections\n", len(c.activeConnections))
+	fmt.Printf("[broadcastMapTasks] broadcasting tasks to %v connections\n\n", len(c.activeConnections))
 	pk := 0
 	for _, port := range c.activeConnections {
 		// notify workers about a new job through RPC calls
@@ -67,7 +67,7 @@ func (c *AviaryCoordinator) broadcastReduceTasks() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	fmt.Printf("[Coordinator] Broadcasting Reduce tasks\n")
+	fmt.Printf("[Coordinator] Broadcasting Reduce tasks\n\n")
 	pk := 0
 	for _, port := range c.activeConnections {
 		// notify workers about request jobs
@@ -77,7 +77,7 @@ func (c *AviaryCoordinator) broadcastReduceTasks() {
 			CollectionName: "coll",
 			Tag:            "wc",
 			Partition:      pk,
-			OIDs: 		    c.Files[pk], // TODO: this sometimes goes out of range when the workers rejoin (index 3 of size 3)
+			OIDs:           c.Files[pk], // TODO: this sometimes goes out of range when the workers rejoin (index 3 of size 3)
 		}
 		c.notifyWorker(port, &newRequest)
 		pk++
@@ -86,9 +86,11 @@ func (c *AviaryCoordinator) broadcastReduceTasks() {
 }
 
 // NEW RPC HANDLERS to for workers to notify the coordinator that a Map/Reduce job is complete
-func (c* AviaryCoordinator) MapComplete(request *MapCompleteRequest, reply *MapCompleteReply) error {
+func (c *AviaryCoordinator) MapComplete(request *MapCompleteRequest, reply *MapCompleteReply) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	fmt.Printf("[MapComplete] request.OIDs: %v\n\n", request.OIDs)
 
 	c.Files[0] = append(c.Files[0], request.OIDs[0])
 	c.Files[1] = append(c.Files[1], request.OIDs[1])
@@ -102,7 +104,7 @@ func (c* AviaryCoordinator) MapComplete(request *MapCompleteRequest, reply *MapC
 	return nil
 }
 
-func (c* AviaryCoordinator) ReduceComplete(request *ReduceCompleteRequest, reply *ReduceCompleteReply) error {
+func (c *AviaryCoordinator) ReduceComplete(request *ReduceCompleteRequest, reply *ReduceCompleteReply) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -110,26 +112,27 @@ func (c* AviaryCoordinator) ReduceComplete(request *ReduceCompleteRequest, reply
 	if c.count == 3 {
 		fmt.Printf("[Coordinator] All Reduce tasks complete!!\n")
 		c.count = 0
+		// TODO: add the ClientID and the JobID that the RPC is associated with
+		// c.jobs[request.ClientID][request.JobID].State = DONE
 	}
 
 	return nil
 }
-
 
 // the Aviary Coordinator struct
 
 // creates an Aviary Coordinator
 func MakeCoordinator() *AviaryCoordinator {
 	c := AviaryCoordinator{
-		jobs: 			   make(map[int][]Job),
-		counts: 		   make(map[int]int),
-		context: 		   AviaryContext{},
+		jobs:              make(map[int][]Job),
+		counts:            make(map[int]int),
+		context:           AviaryContext{},
 		clerkRequestCh:    make(chan ClerkRequest),
-		insertCh: 		   make(chan bson.D),
-		findCh: 		   make(chan bson.D),
+		insertCh:          make(chan bson.D),
+		findCh:            make(chan bson.D),
 		activeConnections: make(map[UUID]int),
-		Files: 			   make([][]primitive.ObjectID, 3),
-		count: 			   0,
+		Files:             make([][]primitive.ObjectID, 3),
+		count:             0,
 	}
 
 	// establish connection to mongodb first before listening for RPCs
@@ -309,7 +312,9 @@ func (c *AviaryCoordinator) ClerkRequestHandler(request *ClerkRequest, reply *Cl
 
 // notify the worker at the given port about the new job
 func (ac *AviaryCoordinator) notifyWorker(port int, request *CoordinatorRequest) {
-	fmt.Printf("[notifyWorker] sending worker request: %v\n", request);
+	fmt.Printf("[notifyWorker] sending worker request: %v\n", request)
+	fmt.Printf("[notifyWorker] request.FunctionID: %v\n", request.FunctionID)
+
 	reply := CoordinatorReply{}
 
 	ok := callRPC("AviaryWorker.CoordinatorRequestHandler", request, &reply, "", port)

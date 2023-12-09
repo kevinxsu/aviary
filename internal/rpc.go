@@ -73,8 +73,10 @@ type MapCompleteReply struct {
 	Status ReplyType
 }
 
-type ReduceCompleteRequest struct {}
-type ReduceCompleteReply struct {}
+type ReduceCompleteRequest struct {
+	ClientID int
+}
+type ReduceCompleteReply struct{}
 
 type RegisterWorkerRequest struct {
 	WorkerID   UUID
