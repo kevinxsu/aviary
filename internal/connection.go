@@ -43,9 +43,6 @@ func (c *AviaryCoordinator) mongoConnection(ch chan bool) {
 	intermediates := client.Database("db").Collection("aviaryIntermediates")
 	functions := client.Database("db").Collection("aviaryFuncs")
 
-	c.context.intermediates = intermediates
-	c.context.functions = functions
-
 	// unblock MakeCoordinator thread
 	ch <- true
 
@@ -53,7 +50,7 @@ func (c *AviaryCoordinator) mongoConnection(ch chan bool) {
 	for {
 		select {
 		case toInsert := <-c.insertCh:
-			CPrintf("Case: toInsert := <-c.insertCh\n")
+			CPrintf("[mongoConnection] CASE: toInsert := <-c.insertCh\n\n")
 
 			ctxt, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -62,10 +59,10 @@ func (c *AviaryCoordinator) mongoConnection(ch chan bool) {
 			if err != nil {
 				log.Fatal("mongo insert error: ", err)
 			}
-			CPrintf("Coordinator inserted %v with id %v\n", res, res.InsertedID)
+			CPrintf("[mongoConnection] Coordinator inserted %v with id %v\n\n", res, res.InsertedID)
 
 		case filter := <-c.findCh:
-			CPrintf("Case: filter := <-c.findCh")
+			CPrintf("[mongoConnection] CASE: filter := <-c.findCh\n\n")
 			ctxt, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
@@ -73,7 +70,7 @@ func (c *AviaryCoordinator) mongoConnection(ch chan bool) {
 			if err != nil {
 				log.Fatal("mongo find error: ", err)
 			}
-			CPrintf("Coordinator found %v\n", res)
+			CPrintf("Coordinator found %v\n\n", res)
 		}
 	}
 }
@@ -204,6 +201,7 @@ func (w *AviaryWorker) mongoConnection(ch chan bool) {
 			// send back to main goroutine
 			w.uploadedCh <- objectID
 
+		// download the intermediates
 		case oid := <-w.reduceCh:
 			grid_opts := options.GridFSBucket().SetName("aviaryIntermediates")
 			bucket, err := gridfs.NewBucket(db, grid_opts)
@@ -228,6 +226,21 @@ func (w *AviaryWorker) mongoConnection(ch chan bool) {
 			downloadStream.Close()
 
 			w.reduceResultsCh <- keyvalues
+
+		// upload the result of the reduction to gridfs
+		case result := <-w.uploadResultsCh:
+			grid_opts := options.GridFSBucket().SetName("aviaryResults")
+			bucket, err := gridfs.NewBucket(db, grid_opts)
+			if err != nil {
+				log.Fatal("GridFS NewBucket error: ", err)
+			}
+			tempFile, _ := os.Open(result.filename)
+			defer tempFile.Close()
+			objectID, err := bucket.UploadFromStream(result.filename, io.Reader(tempFile))
+			if err != nil {
+				panic(err)
+			}
+			w.resultOidCh <- objectID
 		}
 	}
 }

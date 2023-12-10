@@ -24,12 +24,14 @@ type ClerkType = string
 const (
 	JOB  ClerkType = "JOB"
 	SHOW           = "SHOW"
+	GET            = "GET"
 )
 
 type ReplyType = string
 
 const (
-	OK ReplyType = "OK"
+	OK       ReplyType = "OK"
+	NOTREADY           = "NOTREADY"
 )
 
 /* struct defs and functions for Coordinator to receive RPCs from Clerk */
@@ -37,6 +39,7 @@ const (
 // RPC structs and handlers from Clerks
 type ClerkRequest struct {
 	Type           ClerkType
+	JobID          int
 	ClientID       int
 	DatabaseName   string
 	CollectionName string
@@ -45,8 +48,9 @@ type ClerkRequest struct {
 }
 
 type ClerkReply struct {
-	Message ReplyType // coordinator response message
-	Jobs    []Job     // in-progress jobs
+	Message ReplyType            // coordinator response message
+	Jobs    []Job                // in-progress jobs
+	OIDS    []primitive.ObjectID // the oids of the results
 }
 
 // RPC structs for workers and the coordinator
@@ -64,6 +68,7 @@ type MapCompleteReply struct {
 type ReduceCompleteRequest struct {
 	JobID    int // the ID of the client's MapReduce job
 	ClientID int // the client's ID is also just an int
+	OID      primitive.ObjectID
 }
 type ReduceCompleteReply struct {
 	JobID    int // the ID of the client's MapReduce job

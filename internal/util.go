@@ -65,11 +65,12 @@ func PrettyPrintJobs(jobs []Job) {
 	for _, job := range jobs {
 		fmt.Println("Job", job.JobID)
 		fmt.Println("    State: ", job.State)
-		fmt.Println("    Completed: ", job.Completed)
-		fmt.Println("    Ongoing: ", job.Ongoing)
+		// fmt.Println("    Completed: ", job.Completed)
+		// fmt.Println("    Ongoing: ", job.Ongoing)
 		fmt.Println("    DatabaseName: ", job.DatabaseName)
 		fmt.Println("    CollectionName: ", job.CollectionName)
 		fmt.Println("    FunctionID: ", job.FunctionID)
+		fmt.Println("    Result OIDs: ", job.FileOIDs)
 	}
 }
 

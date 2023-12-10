@@ -29,8 +29,8 @@ func (c *AviaryCoordinator) server() {
 func (c *AviaryCoordinator) RegisterWorker(request *RegisterWorkerRequest, reply *RegisterWorkerReply) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
 	CPrintf("[RegisterWorker] registering worker %d with port %d\n", request.WorkerID, request.WorkerPort)
+
 	c.activeConnections[request.WorkerID] = request.WorkerPort
 	reply.Status = OK
 	return nil
@@ -39,7 +39,7 @@ func (c *AviaryCoordinator) RegisterWorker(request *RegisterWorkerRequest, reply
 func (c *AviaryCoordinator) broadcastMapTasks(request *ClerkRequest, jobID int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	CPrintf("[broadcastMapTasks] broadcasting tasks to %v connections\n\n", len(c.activeConnections))
+	CPrintf("[broadcastMapTasks] broadcasting tasks to %v connections\n", len(c.activeConnections))
 
 	pk := 0
 	for _, port := range c.activeConnections {
@@ -63,8 +63,8 @@ func (c *AviaryCoordinator) broadcastMapTasks(request *ClerkRequest, jobID int) 
 func (c *AviaryCoordinator) broadcastReduceTasks(request *MapCompleteRequest) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	CPrintf("[Coordinator] Broadcasting Reduce tasks\n")
 
-	CPrintf("[Coordinator] Broadcasting Reduce tasks\n\n")
 	pk := 0
 	for _, port := range c.activeConnections {
 		// notify workers about request jobs
@@ -89,6 +89,7 @@ func (c *AviaryCoordinator) MapComplete(request *MapCompleteRequest, reply *MapC
 	// TODO: generalize to n workers (how to implement leave/join?)
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	c.Files[0] = append(c.Files[0], request.OIDs[0])
 	c.Files[1] = append(c.Files[1], request.OIDs[1])
 	c.Files[2] = append(c.Files[2], request.OIDs[2])
@@ -109,14 +110,15 @@ func (c *AviaryCoordinator) ReduceComplete(request *ReduceCompleteRequest, reply
 
 	// TODO: Add additional information so the user knows where to get their reduced data
 	if c.count == 3 {
-		CPrintf("[Coordinator] REDUCE TASKS COMPLETED\n\n")
 		c.count = 0
 
 		// update the state of the Job{JobID} associated ClientID
-		c.jobs[request.ClientID][request.JobID].mu.Lock()
-		defer c.jobs[request.ClientID][request.JobID].mu.Unlock()
+		// c.jobs[request.ClientID][request.JobID].mu.Lock()
+		// defer c.jobs[request.ClientID][request.JobID].mu.Unlock()
 		c.jobs[request.ClientID][request.JobID].State = DONE
+		CPrintf("[Coordinator] REDUCE TASKS COMPLETED\n")
 	}
+	c.jobs[request.ClientID][request.JobID].FileOIDs = append(c.jobs[request.ClientID][request.JobID].FileOIDs, request.OID)
 
 	return nil
 }
@@ -126,7 +128,6 @@ func MakeCoordinator() *AviaryCoordinator {
 	c := AviaryCoordinator{
 		jobs:              make(map[int][]Job),
 		counts:            make(map[int]int),
-		context:           AviaryContext{},
 		clerkRequestCh:    make(chan ClerkRequest),
 		insertCh:          make(chan bson.D),
 		findCh:            make(chan bson.D),
@@ -170,9 +171,9 @@ func (c *AviaryCoordinator) listenForClerkRequests() {
 			Tag:            request.Tag,
 			FunctionID:     request.FunctionID,
 			ClientID:       clientId,
+			FileOIDs:       make([]primitive.ObjectID, 0),
 		})
 		c.mu.Unlock()
-
 		c.broadcastMapTasks(&request, jobId)
 	}
 }
@@ -239,6 +240,20 @@ func (c *AviaryCoordinator) ClerkRequestHandler(request *ClerkRequest, reply *Cl
 	// show in progress jobs
 	case SHOW:
 		reply.Jobs = c.ShowJobs(request.ClientID)
+		reply.Message = OK
+
+	// download stuff
+	case GET:
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if c.jobs[request.ClientID][request.JobID].State != DONE {
+			reply.Message = NOTREADY
+			return nil
+		}
+
+		// otherwise, copy the oids
+		reply.OIDS = make([]primitive.ObjectID, len(c.jobs[request.ClientID][request.JobID].FileOIDs))
+		copy(reply.OIDS, c.jobs[request.ClientID][request.JobID].FileOIDs)
 		reply.Message = OK
 
 	default:

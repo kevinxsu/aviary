@@ -34,6 +34,8 @@ type AviaryWorker struct {
 	mapResultsCh    chan []InputData
 	reduceCh        chan primitive.ObjectID
 	reduceResultsCh chan []KeyValue
+	uploadResultsCh chan ReducedResults
+	resultOidCh     chan primitive.ObjectID
 
 	// channel to upload intermediate file
 	intermediatesCh chan string
@@ -69,6 +71,8 @@ func MakeWorker() *AviaryWorker {
 		uploadedCh:      make(chan primitive.ObjectID),
 		reduceCh:        make(chan primitive.ObjectID),
 		reduceResultsCh: make(chan []KeyValue),
+		uploadResultsCh: make(chan ReducedResults),
+		resultOidCh:     make(chan primitive.ObjectID),
 
 		mapf:    nil,
 		reducef: nil,
@@ -196,7 +200,7 @@ func (w *AviaryWorker) handleMap(job CoordinatorRequest) []primitive.ObjectID {
 	return oids
 }
 
-func (w *AviaryWorker) handleReduce(job *CoordinatorRequest) {
+func (w *AviaryWorker) handleReduce(job *CoordinatorRequest) primitive.ObjectID {
 	WPrintf("[handleReduce] Worker starting to process Reduce task\n\n")
 
 	// files to download from gridfs
@@ -217,13 +221,13 @@ func (w *AviaryWorker) handleReduce(job *CoordinatorRequest) {
 	// "shuffle" step
 	sort.Sort(ByKey(keyvalues))
 
-	filename := "reduce" + strconv.Itoa(job.Partition) + ".json"
+	filename := strconv.Itoa(job.ClientID) + "_" + strconv.Itoa(job.JobID) + "_" + strconv.Itoa(job.Partition) + ".json"
+
 	tempFile, err := os.Create(filename)
+	// tempFile, err := os.CreateTemp("", filename)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer tempFile.Close()
-
 	// now combine the values of the same keys
 	i := 0
 	for i < len(keyvalues) {
@@ -241,10 +245,24 @@ func (w *AviaryWorker) handleReduce(job *CoordinatorRequest) {
 		i = j
 	}
 
+	// so scuffed
+	tempFile.Close()
+
+	// send the results through the channel, which will upload it to GridFS
+	// for the client to later download
+	w.uploadResultsCh <- ReducedResults{
+		filename:  filename,
+		jobID:     job.JobID,
+		clientID:  job.ClientID,
+		partition: job.Partition,
+	}
+
+	oid := <-w.resultOidCh
+
 	// remove the *.so file
 	os.Remove("tmp" + w.WorkerID.String() + "lib.so")
-
-	// TODO: upload results to somewhere in the underlying database
+	defer os.Remove(filename)
+	return oid
 }
 
 // wait to be assigned a new job from the coordinator
@@ -285,12 +303,13 @@ func (w *AviaryWorker) Start() {
 		/********************* REDUCE CASE *****************************************/
 		case REDUCE:
 			WPrintf("[Start] Worker in REDUCE case with job: %v\n\n", job)
-			w.handleReduce(&job)
+			oid := w.handleReduce(&job)
 
 			// once reduce task is done, worker needs to notify coordinator
 			request := ReduceCompleteRequest{
 				JobID:    job.JobID,
 				ClientID: job.ClientID,
+				OID:      oid,
 			}
 			reply := ReduceCompleteReply{}
 			w.callReduceComplete(&request, &reply)
@@ -327,8 +346,7 @@ func (w *AviaryWorker) callReduceComplete(request *ReduceCompleteRequest, reply 
 	}
 }
 
-// potential issue: how does coordinator broadcast to all workers?
-// dont think we can reuse the same port
+// potential issue: how does coordinator broadcast to all workers?  dont think we can reuse the same port
 // but similar to coord, start a thread that listens for RPCs from coordinator
 func (w *AviaryWorker) server() {
 	rpc.Register(w)
