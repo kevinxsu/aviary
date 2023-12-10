@@ -20,6 +20,7 @@ const (
 
 // a Job struct contains information about a requested MapReduce job
 type Job struct {
+	ClientID       int                // the client's ID
 	JobID          int                // the client's MapReduce Job ID
 	State          JobState           // the state of the client's Job
 	Completed      []int              // which tasks are completed
@@ -48,9 +49,9 @@ type AviaryCoordinator struct {
 
 	context AviaryContext // coordinator's connection with the database
 
-	clerkRequestCh  chan ClerkRequest
-	insertCh 		chan bson.D
-	findCh   		chan bson.D
+	clerkRequestCh chan ClerkRequest
+	insertCh       chan bson.D
+	findCh         chan bson.D
 
 	activeConnections map[UUID]int // slice of active connections to workers
 

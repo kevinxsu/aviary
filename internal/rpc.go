@@ -19,20 +19,6 @@ const (
 	REDUCE_DONE       = "REDUCE_DONE"
 )
 
-/*
-func coordinatorSock() string {
-	s := "/var/tmp/aviary-coordinator-"
-	s += strconv.Itoa(os.Getuid())
-	return s
-}
-
-func workerSock() string {
-	s := "/var/tmp/aviary-worker-"
-	s += strconv.Itoa(os.Getuid())
-	return s
-}
-*/
-
 type ClerkType = string
 
 const (
@@ -65,6 +51,8 @@ type ClerkReply struct {
 
 // RPC structs for workers and the coordinator
 type MapCompleteRequest struct {
+	JobID    int
+	ClientID int
 	WorkerID UUID
 	OIDs     []primitive.ObjectID
 }
@@ -74,9 +62,13 @@ type MapCompleteReply struct {
 }
 
 type ReduceCompleteRequest struct {
-	ClientID int
+	JobID    int // the ID of the client's MapReduce job
+	ClientID int // the client's ID is also just an int
 }
-type ReduceCompleteReply struct{}
+type ReduceCompleteReply struct {
+	JobID    int // the ID of the client's MapReduce job
+	ClientID int // the client's ID is also just an int
+}
 
 type RegisterWorkerRequest struct {
 	WorkerID   UUID

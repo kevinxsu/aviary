@@ -30,9 +30,9 @@ func show_help() {
 	fmt.Printf("\t\t(aviary) ~> begin [your id] [path/to/funcs.so] [database name] [collection name] [document tag]\n")
 }
 
-func show_show() {
-	fmt.Println("To use `show`, the command should look like this: ")
-	fmt.Printf("\t\t(aviary) ~> show [your identifier]\n")
+func show_status() {
+	fmt.Println("To use `status`, the command should look like this: ")
+	fmt.Printf("\t\t(aviary) ~> status [your identifier]\n")
 }
 
 func call(rpcname string, args interface{}, reply interface{}) bool {
@@ -127,6 +127,8 @@ func compile(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// cmd.Wait()
+
 	out, err := exec.Command("ls").Output()
 	if err != nil {
 		return "", err
@@ -192,9 +194,9 @@ func main() {
 			reply := aviary.ClerkReply{}
 			ClerkCall(&request, &reply)
 
-		case "show", "SHOW", "s", "S":
+		case "show", "SHOW", "status", "STATUS", "s", "S":
 			if len(argv) < 2 {
-				show_show()
+				show_status()
 				continue
 			}
 			clientID := argv[1]

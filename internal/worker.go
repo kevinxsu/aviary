@@ -1,28 +1,21 @@
 package aviary
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
 	"net/rpc"
 	"os"
 	"plugin"
-	"runtime"
 	"sort"
 	"strconv"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/gridfs"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // TODO: close files after each run? (or just in general)
@@ -33,13 +26,18 @@ type AviaryWorker struct {
 	Completed  []Job      // completed jobs
 	mu         sync.Mutex // for concurrent requests
 
-	requestCh  chan CoordinatorRequest // channel for incoming jobs sent by the coordinator
-	findCh     chan bson.D             // channel for worker to find stuff? (NOT SURE IF THIS EVEN WORKS OR IS THE BEST WAY)
-	downloadCh chan primitive.ObjectID // download
-	startCh    chan bool
+	requestCh       chan CoordinatorRequest // channel for incoming jobs sent by the coordinator
+	findCh          chan bson.D             // channel for worker to find stuff? (NOT SURE IF THIS EVEN WORKS OR IS THE BEST WAY)
+	downloadCh      chan primitive.ObjectID // download
+	startCh         chan bool
+	mapCh           chan bson.D
+	mapResultsCh    chan []InputData
+	reduceCh        chan primitive.ObjectID
+	reduceResultsCh chan []KeyValue
 
 	// channel to upload intermediate file
-	intermediateCh chan string
+	intermediatesCh chan string
+	uploadedCh      chan primitive.ObjectID
 
 	mapf    func(string, string) []KeyValue
 	reducef func(string, []string) string
@@ -64,6 +62,13 @@ func MakeWorker() *AviaryWorker {
 		findCh:     make(chan bson.D),
 		downloadCh: make(chan primitive.ObjectID),
 		startCh:    make(chan bool),
+
+		mapCh:           make(chan bson.D),
+		mapResultsCh:    make(chan []InputData),
+		intermediatesCh: make(chan string),
+		uploadedCh:      make(chan primitive.ObjectID),
+		reduceCh:        make(chan primitive.ObjectID),
+		reduceResultsCh: make(chan []KeyValue),
 
 		mapf:    nil,
 		reducef: nil,
@@ -103,7 +108,7 @@ func (w *AviaryWorker) callRegisterWorker() {
 		}
 		time.Sleep(time.Second)
 	}
-	fmt.Printf("[callRegisterWorker] worker %v successfully subscribed to Coordinator!\n\n", w.WorkerID)
+	WPrintf("[callRegisterWorker] worker %v successfully subscribed to Coordinator!\n\n", w.WorkerID)
 }
 
 func loadPlugin(filename string) (func(string, string) []KeyValue, func(string, []string) string) {
@@ -125,159 +130,22 @@ func loadPlugin(filename string) (func(string, string) []KeyValue, func(string, 
 	return mapf, reducef
 }
 
-// long-running goroutine for worker to connect to it's local shard
-func (w *AviaryWorker) mongoConnection(ch chan bool) {
-	// TODO: figure out how to make the worker discover the mongod process
-	// but atm not running workers inside the container, just have it query the routers for now
-	// uri := "mongodb://126.0.0.1:27122" // <- seems like we can't directly query the mongod shards just through the uri string
-	// but we can interact with the shard's data through docker exec -it [shard-x-y] mongosh
-
-	serverAPI := options.ServerAPI(options.ServerAPIVersion1)
-	opts := options.Client().ApplyURI(uri).SetServerAPIOptions(serverAPI)
-	client, err := mongo.Connect(context.TODO(), opts)
-	if err != nil {
-		panic(err)
-	}
-
-	defer func() {
-		if err = client.Disconnect(context.TODO()); err != nil {
-			panic(err)
-		}
-	}()
-
-	var result bson.M
-	if err := client.Database("admin").RunCommand(context.TODO(), bson.D{{"ping", 1}}).Decode(&result); err != nil {
-		panic(err)
-	}
-	fmt.Printf("[mongoConnection] worker successfully connected to MongoDB!\n\n")
-
-	db := client.Database("db")
-	collection := db.Collection("coll")
-	ch <- true
-
-	for {
-		select {
-		case filter := <-w.findCh:
-			fmt.Printf("Case: filter := <-w.findCh\n\n")
-			ctxt, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-
-			var res interface{}
-			err := collection.FindOne(ctxt, filter).Decode(&res)
-			if err != nil {
-				if err == mongo.ErrNoDocuments {
-					fmt.Printf("WARNING: Aviary Worker couldn't find documents\n\n")
-					continue
-				}
-				log.Fatal("mongo find error: ", err)
-			}
-			fmt.Printf("Worker found %v\n", res)
-
-		case fileID := <-w.downloadCh:
-			fmt.Printf("[mongoConnection] downloading file from GridFS]\n\n")
-
-			if runtime.GOOS != "darwin" {
-				grid_opts := options.GridFSBucket().SetName("aviaryFuncs")
-				bucket, err := gridfs.NewBucket(db, grid_opts)
-				if err != nil {
-					fmt.Printf("failed here1\n")
-					panic(err)
-				}
-
-				fmt.Println("[mongoConnection] opening download stream")
-				downloadStream, err := bucket.OpenDownloadStream(fileID)
-				if err != nil {
-					fmt.Printf("failed while trying to open the download stream\n")
-					panic(err)
-				}
-
-				tmpFilename := "tmp" + w.WorkerID.String() + "lib.so"
-
-				fmt.Printf("[mongoConnection] creating tmp file: %s\n", tmpFilename)
-				file, err := os.Create(tmpFilename)
-				if err != nil {
-					fmt.Printf("failed to create the tmp file\n")
-					panic(err)
-				}
-
-				fmt.Printf("[mongoConnection] copying downloadStream contents to tmp file\n")
-				_, err = io.Copy(file, downloadStream)
-				if err != nil {
-					fmt.Printf("failed to copy the file\n")
-					panic(err)
-				}
-
-				// file downloaded now. need to update worker's map and reduce functions
-				fmt.Printf("[mongoConnection] loading Map/Reduce functions from plugin\n")
-				mapf, reducef := loadPlugin(tmpFilename) // TODO BUG: killed here
-				w.mapf = mapf
-				w.reducef = reducef
-
-				defer downloadStream.Close()
-				defer file.Close()
-			} else {
-				fmt.Printf("[mongoConnection] skipping download step for macOS")
-				// w.mapf = Map
-				// w.reducef = Reduce
-			}
-
-			w.startCh <- true
-		}
-	}
-}
-
 func (w *AviaryWorker) handleMap(job CoordinatorRequest) []primitive.ObjectID {
-	fmt.Printf("[handleMap] starting to process Map task\n\n")
-
-	// just create a new connection for now
-	serverAPI := options.ServerAPI(options.ServerAPIVersion1)
-	opts := options.Client().ApplyURI(uri).SetServerAPIOptions(serverAPI)
-	client, err := mongo.Connect(context.TODO(), opts)
-	if err != nil {
-		panic(err)
-	}
-
-	defer func() {
-		if err = client.Disconnect(context.TODO()); err != nil {
-			panic(err)
-		}
-	}()
-
-	// TODO: is there a reason why workers need to connect (and disconnect) each time it processes a task?
-	var result bson.M
-	if err := client.Database("admin").RunCommand(context.TODO(), bson.D{{"ping", 1}}).Decode(&result); err != nil {
-		panic(err)
-	}
-	fmt.Printf("[handleMap] worker connected to MongoDB!\n\n")
-
-	db := client.Database(job.DatabaseName)
-	collection := db.Collection(job.CollectionName)
+	WPrintf("[handleMap] Worker starting to process Map task\n\n")
 
 	// filter by partition number
 	filter := bson.D{{"partition", job.Partition}}
 
-	// find the stuff
-	cursor, err := collection.Find(context.TODO(), filter)
-	if err != nil {
-		panic(err)
-	}
+	// send the find filter to the channel (in connection.go)
+	w.mapCh <- filter
 
-	var results []InputData
-	if err = cursor.All(context.TODO(), &results); err != nil {
-		panic(err)
-	}
-
-	// for _, result := range results {
-	// 	res, _ := json.Marshal(result)
-	// 	fmt.Println(string(res))
-	// }
+	// get the results of the database find
+	results := <-w.mapResultsCh
 
 	intermediates := make([]KeyValue, 0)
-
 	for _, result := range results {
 		res, _ := json.Marshal(result)
 		contents := string(res)
-
 		// intermediate has type []KeyValue
 		intermediate := w.mapf("", contents)
 		intermediates = append(intermediates, intermediate...)
@@ -305,9 +173,8 @@ func (w *AviaryWorker) handleMap(job CoordinatorRequest) []primitive.ObjectID {
 		if err != nil {
 			log.Fatal(err)
 		}
+		defer os.Remove(name)
 
-		// w := io.Writer(tempFile)
-		// enc := json.NewEncoder(w)
 		enc := json.NewEncoder(tempFile)
 		for _, kv := range intermediate_files[i] {
 			err = enc.Encode(&kv)
@@ -317,83 +184,36 @@ func (w *AviaryWorker) handleMap(job CoordinatorRequest) []primitive.ObjectID {
 		}
 		tempFile.Close()
 
-		/* open db connection & upload */
-		grid_opts := options.GridFSBucket().SetName("aviaryIntermediates")
-		bucket, err := gridfs.NewBucket(db, grid_opts)
-		if err != nil {
-			log.Fatal("GridFS NewBucket error: ", err)
-		}
-		tempFile, _ = os.Open(name)
-		objectID, err := bucket.UploadFromStream(name, io.Reader(tempFile))
-		if err != nil {
-			log.Fatal("bucket.UploadFromStream error: ", err)
-		}
+		// send the name of the file to the channel
+		w.intermediatesCh <- name
+
+		// get the objectID of the uploaded file and append to oids
+		objectID := <-w.uploadedCh
 		oids = append(oids, objectID)
 	}
 
-	for _, file := range inter_filenames {
-		os.Remove(file)
-	}
-
-	fmt.Printf("[handleMap] worker %v uploaded results to OIDs %v\n", w.WorkerID, oids)
+	WPrintf("[handleMap] Worker %v uploaded results to OIDs %v\n", w.WorkerID, oids)
 	return oids
 }
 
-func (w *AviaryWorker) handleReduce(job CoordinatorRequest) {
-	fmt.Printf("[handleReduce] starting to process Reduce task\n\n")
+func (w *AviaryWorker) handleReduce(job *CoordinatorRequest) {
+	WPrintf("[handleReduce] Worker starting to process Reduce task\n\n")
 
 	// files to download from gridfs
 	oids := job.OIDs
-	fmt.Printf("[handleReduce] processing OIDs: %v\n\n", oids)
+	WPrintf("[handleReduce] processing OIDs: %v\n\n", oids)
 
 	keyvalues := make([]KeyValue, 0)
 
 	// download the file contents
 	for _, oid := range oids {
-		// start new context
-		serverAPI := options.ServerAPI(options.ServerAPIVersion1)
-		opts := options.Client().ApplyURI(uri).SetServerAPIOptions(serverAPI)
-		client, err := mongo.Connect(context.TODO(), opts)
-		if err != nil {
-			panic(err)
-		}
-		defer func() {
-			if err = client.Disconnect(context.TODO()); err != nil {
-				panic(err)
-			}
-		}()
-		var result bson.M
-		if err := client.Database("admin").RunCommand(context.TODO(), bson.D{{"ping", 1}}).Decode(&result); err != nil {
-			panic(err)
-		}
-		fmt.Printf("[handleReduce] worker connected to MongoDB!\n\n")
-		db := client.Database(job.DatabaseName)
-		grid_opts := options.GridFSBucket().SetName("aviaryIntermediates")
-		bucket, err := gridfs.NewBucket(db, grid_opts)
-		if err != nil {
-			panic(err)
-		}
-
-		downloadStream, err := bucket.OpenDownloadStream(oid)
-		if err != nil {
-			panic(err)
-		}
-
-		dec := json.NewDecoder(downloadStream)
-
-		for {
-			var kv KeyValue
-			if err := dec.Decode(&kv); err != nil {
-				break
-			}
-			keyvalues = append(keyvalues, kv)
-		}
-
-		downloadStream.Close()
+		// send the oid to the channel to get the keyvalues associated with it
+		w.reduceCh <- oid
+		kvs := <-w.reduceResultsCh
+		keyvalues = append(keyvalues, kvs...)
 	}
 
-	// sort
-	// kva filled with the values of the first intermediate, need to sort
+	// sort kva filled with the values of the first intermediate, need to sort
 	// "shuffle" step
 	sort.Sort(ByKey(keyvalues))
 
@@ -423,6 +243,8 @@ func (w *AviaryWorker) handleReduce(job CoordinatorRequest) {
 
 	// remove the *.so file
 	os.Remove("tmp" + w.WorkerID.String() + "lib.so")
+
+	// TODO: upload results to somewhere in the underlying database
 }
 
 // wait to be assigned a new job from the coordinator
@@ -430,18 +252,21 @@ func (w *AviaryWorker) Start() {
 	for {
 		// await new job
 		job := <-w.requestCh
-		fmt.Printf("[Start] worker received new job: %v\n\n", job)
+		WPrintf("[Start] Worker received new job: %v\n\n", job)
 
-		/*
-			// download the map and reduce functions
-			w.downloadCh <- job.FunctionID
+		/* bug here
+		// download the map and reduce functions
+		w.downloadCh <- job.FunctionID
 
-			// block until the channel
-			<-w.startCh
+		// block until the channel
+		<-w.startCh
 		*/
 
 		switch job.Phase {
+
+		/*********************** MAP CASE *****************************************/
 		case MAP:
+			WPrintf("[Start] Worker in MAP case with job: %v\n\n", job)
 			w.downloadCh <- job.FunctionID
 			<-w.startCh
 
@@ -449,45 +274,55 @@ func (w *AviaryWorker) Start() {
 
 			// once map task is done, worker needs to notify coordinator
 			request := MapCompleteRequest{
+				ClientID: job.ClientID,
+				JobID:    job.JobID,
 				WorkerID: w.WorkerID,
 				OIDs:     oids,
 			}
 			reply := MapCompleteReply{}
 			w.callMapComplete(&request, &reply)
 
-			/************************************************************************/
-
+		/********************* REDUCE CASE *****************************************/
 		case REDUCE:
-			w.handleReduce(job)
+			WPrintf("[Start] Worker in REDUCE case with job: %v\n\n", job)
+			w.handleReduce(&job)
 
 			// once reduce task is done, worker needs to notify coordinator
-			request := ReduceCompleteRequest{}
+			request := ReduceCompleteRequest{
+				JobID:    job.JobID,
+				ClientID: job.ClientID,
+			}
 			reply := ReduceCompleteReply{}
 			w.callReduceComplete(&request, &reply)
 
 		default:
+			WPrintf("[Start] Worker in default case ?????????????????????? \n\n")
 		}
 	}
 }
 
 func (w *AviaryWorker) callMapComplete(request *MapCompleteRequest, reply *MapCompleteReply) {
+	WPrintf("[callMapComplete] Worker %v about to ping Coordinator, done with MAP\n\n", w.WorkerID)
 	for {
 		ok := callRPCWithRetry("AviaryCoordinator.MapComplete", request, reply, "127.0.0.1", 1234)
 		if ok {
-			fmt.Printf("[callMapComplete] coordinator replied OK to MapComplete RPC\n\n")
+			WPrintf("[callMapComplete] Coordinator replied OK to Worker MapComplete RPC\n\n")
 			return
 		}
+		WPrintf("[callMapComplete] Worker retrying MapComplete RPC to Coordinator\n\n", w.WorkerID)
 		time.Sleep(time.Second)
 	}
 }
 
 func (w *AviaryWorker) callReduceComplete(request *ReduceCompleteRequest, reply *ReduceCompleteReply) {
+	WPrintf("[callReduceComplete] Worker %v about to ping Coordinator, done with REDUCE\n\n", w.WorkerID)
 	for {
 		ok := callRPCWithRetry("AviaryCoordinator.ReduceComplete", request, reply, "127.0.0.1", 1234)
 		if ok {
-			fmt.Printf("[callMapComplete] coordinator replied OK to ReduceComplete RPC\n\n")
+			WPrintf("[callMapComplete] Coordinator replied OK to Worker ReduceComplete RPC\n\n")
 			return
 		}
+		WPrintf("[callMapComplete] Worker retrying ReduceComplete RPC to Coordinator\n\n", w.WorkerID)
 		time.Sleep(time.Second)
 	}
 }
@@ -509,53 +344,40 @@ func (w *AviaryWorker) server() {
 			break
 		}
 	}
-	fmt.Printf("[server] found good port: %d\n", w.port)
+
+	WPrintf("[server] Worker %v found good port: %d\n", w.WorkerID, w.port)
 	go http.Serve(l, nil)
 }
 
 // Worker's RPC handler for Coordinator notifications
 func (w *AviaryWorker) CoordinatorRequestHandler(request *CoordinatorRequest, reply *CoordinatorReply) error {
-	fmt.Printf("[CoordinatorRequestHandler] received RPC from Coordinator\n\n")
+	WPrintf("[CoordinatorRequestHandler] received RPC from Coordinator\n\n")
 	switch request.Phase {
 	case MAP:
-		fmt.Printf("[CoordinatorRequestHandler] pushing Map task on the channel\n\n")
+		WPrintf("[CoordinatorRequestHandler] pushing Map task on requestCh\n\n")
 		w.requestCh <- *request
 		// TODO: bug, immediate return of nil !=> request processed correctly
 		reply.Message = OK
 		return nil
 
 	case REDUCE:
-		fmt.Printf("[CoordinatorRequestHandler] pushing Reduce task on the channel\n\n")
+		WPrintf("[CoordinatorRequestHandler] pushing Reduce task on requestCh\n\n")
 		w.requestCh <- *request
 		reply.Message = OK
 		return nil
 
 	default:
+		WPrintf("[CoordinatorRequestHandler] default ????????????????????????\n\n")
 		reply.Reply = OK
 		return nil
 	}
 }
 
-type WorkerState struct {
-	JobID    uuid.UUID
-	WorkerID uuid.UUID
-	Action   Phase
-	Key      interface{}
-	Value    interface{}
-}
-
 type WorkerRequest struct {
+	JobID       int // the ID of the client's MapReduce job
+	ClientID    int // the client's ID is also just an int
 	WorkerID    UUID
 	WorkerState Phase
-	WorkerPort  int // if INIT Phase, should only be WorkerID, WorkerState, and WorkerPort
-
-	// TODO: add JobID associated with a request (needs to come from the Coordinator)
-
-	// the id of the intermediate data from Map phase (stored in GridFS)
-	// ObjectID primitive.ObjectID
-	OIDs []primitive.ObjectID
-}
-
-type WorkerReply struct {
-	Reply ReplyType
+	WorkerPort  int                  // if INIT Phase, should only be WorkerID, WorkerState, and WorkerPort
+	OIDs        []primitive.ObjectID // the id of the intermediate data from Map phase (stored in GridFS)
 }

@@ -3,6 +3,7 @@ package aviary
 import (
 	"fmt"
 	"hash/fnv"
+	"log"
 	"math/rand"
 	"net/rpc"
 	"strconv"
@@ -10,6 +11,25 @@ import (
 
 	"github.com/google/uuid"
 )
+
+// color coding
+const (
+	RED   = "\033[31m"
+	GREEN = "\033[32m"
+	R     = "\033[0m"
+)
+
+// coordinator print
+func CPrintf(format string, a ...interface{}) (n int, err error) {
+	log.Printf(GREEN+format+R, a...)
+	return
+}
+
+// worker print
+func WPrintf(format string, a ...interface{}) (n int, err error) {
+	log.Printf(RED+format+R, a...)
+	return
+}
 
 type UUID = uuid.UUID
 
@@ -94,7 +114,7 @@ func callRPC(rpcname string, args interface{}, reply interface{}, host string,
 	// sockname := coordinatorSock()
 	// TODO: add support for retries
 
-	c, err := rpc.DialHTTP("tcp", host + ":" + strconv.Itoa(port))
+	c, err := rpc.DialHTTP("tcp", host+":"+strconv.Itoa(port))
 	if err != nil {
 		fmt.Printf("callRPC error: %v", err)
 		return false
@@ -116,7 +136,7 @@ func callRPCWithRetry(rpcname string, args interface{}, reply interface{},
 	var err error
 	for {
 		// continuously loop until worker can contact Coordinator
-		c, err = rpc.DialHTTP("tcp", host + ":" + strconv.Itoa(port))
+		c, err = rpc.DialHTTP("tcp", host+":"+strconv.Itoa(port))
 		if err == nil {
 			break
 		}
