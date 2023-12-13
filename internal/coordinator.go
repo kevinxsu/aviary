@@ -89,10 +89,9 @@ func (c *AviaryCoordinator) MapComplete(request *MapCompleteRequest, reply *MapC
 	// TODO: generalize to n workers (how to implement leave/join?)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
-	c.Files[0] = append(c.Files[0], request.OIDs[0])
-	c.Files[1] = append(c.Files[1], request.OIDs[1])
-	c.Files[2] = append(c.Files[2], request.OIDs[2])
+	// c.Files[0] = append(c.Files[0], request.OIDs[0])
+	// c.Files[1] = append(c.Files[1], request.OIDs[1])
+	// c.Files[2] = append(c.Files[2], request.OIDs[2])
 	c.count++
 	if c.count == 3 {
 		go c.broadcastReduceTasks(request)
@@ -117,6 +116,9 @@ func (c *AviaryCoordinator) ReduceComplete(request *ReduceCompleteRequest, reply
 		// defer c.jobs[request.ClientID][request.JobID].mu.Unlock()
 		c.jobs[request.ClientID][request.JobID].State = DONE
 		CPrintf("[Coordinator] REDUCE TASKS COMPLETED\n")
+
+		// TODO: clear the collection (this means no concurrent jobs)
+		c.dropCollectionsCh <- true
 	}
 	c.jobs[request.ClientID][request.JobID].FileOIDs = append(c.jobs[request.ClientID][request.JobID].FileOIDs, request.OID)
 
@@ -133,6 +135,7 @@ func MakeCoordinator() *AviaryCoordinator {
 		findCh:            make(chan bson.D),
 		activeConnections: make(map[UUID]int),
 		Files:             make([][]primitive.ObjectID, 3),
+		dropCollectionsCh: make(chan bool),
 		count:             0,
 	}
 

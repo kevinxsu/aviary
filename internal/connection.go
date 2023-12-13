@@ -72,6 +72,16 @@ func (c *AviaryCoordinator) mongoConnection(ch chan bool) {
 				log.Fatal("mongo find error: ", err)
 			}
 			CPrintf("Coordinator found %v\n\n", res)
+
+		case <-c.dropCollectionsCh:
+			CPrintf("[mongoConnection] CASE: <-c.dropCollectionsCh\n\n")
+			for i := 0; i < 3; i++ {
+				tmp := client.Database("db").Collection("intermediatesPartition" + strconv.Itoa(i))
+				err := tmp.Drop(context.TODO())
+				if err != nil {
+					panic(err)
+				}
+			}
 		}
 	}
 }

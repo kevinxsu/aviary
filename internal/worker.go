@@ -185,7 +185,7 @@ func (w *AviaryWorker) handleMap(job CoordinatorRequest) []primitive.ObjectID {
 
 	fmt.Printf("%v\n", imap[KeyValue{Key: "A", Value: "1"}])
 	fmt.Printf("len: %v\n", len(imap[KeyValue{Key: "A", Value: "1"}]))
-	time.Sleep(60 * time.Second)
+	// time.Sleep(60 * time.Second)
 
 	///
 

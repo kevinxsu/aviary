@@ -42,7 +42,7 @@ type AviaryCoordinator struct {
 	activeConnections map[UUID]int           // slice of active connections to workers
 	Files             [][]primitive.ObjectID // oids for intermediate files in GridFS
 	mu                sync.Mutex
-
+	dropCollectionsCh chan bool
 	// placeholder, TODO: fix this so we have dynamic number of workers
 	count int
 }
