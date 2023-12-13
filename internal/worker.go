@@ -287,24 +287,24 @@ func (w *AviaryWorker) handleReduce(job *CoordinatorRequest) primitive.ObjectID 
 		fmt.Printf("read %v\n", keyval)
 		keyvalues = append(keyvalues, keyval)
 	}
-	panic("asdf")
+	// panic("asdf")
 
 	/////////////////////////////////////
 
 	// files to download from gridfs
-	oids := job.OIDs
-	WPrintf("[handleReduce] processing OIDs: %v\n\n", oids)
+	// oids := job.OIDs
+	// WPrintf("[handleReduce] processing OIDs: %v\n\n", oids)
 
 	// keyvalues := make([]KeyValue, 0)
-	keyvalues = make([]KeyValue, 0)
+	// keyvalues = make([]KeyValue, 0)
 
 	// download the file contents
-	for _, oid := range oids {
-		// send the oid to the channel to get the keyvalues associated with it
-		w.reduceCh <- oid
-		kvs := <-w.reduceResultsCh
-		keyvalues = append(keyvalues, kvs...)
-	}
+	//	for _, oid := range oids {
+	// send the oid to the channel to get the keyvalues associated with it
+	//w.reduceCh <- oid
+	// 	kvs := <-w.reduceResultsCh
+	// 	keyvalues = append(keyvalues, kvs...)
+	// }
 
 	// sort kva filled with the values of the first intermediate, need to sort
 	// "shuffle" step
