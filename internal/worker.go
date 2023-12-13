@@ -176,11 +176,16 @@ func (w *AviaryWorker) handleMap(job CoordinatorRequest) []primitive.ObjectID {
 
 	actual_results := make([]KeyValue, 0)
 	for kv, kvslice := range imap {
+		fmt.Printf("sending to eager reduce %v\n", kvslice)
 		reducef_kv := w.reducef(kv.Key, kvslice)
 		actual_results = append(actual_results, KeyValue{Key: kv.Key, Value: reducef_kv})
 	}
 
 	intermediates := actual_results
+
+	fmt.Printf("%v\n", imap[KeyValue{Key: "A", Value: "1"}])
+	fmt.Printf("len: %v\n", len(imap[KeyValue{Key: "A", Value: "1"}]))
+	time.Sleep(60 * time.Second)
 
 	///
 
@@ -228,40 +233,40 @@ func (w *AviaryWorker) handleMap(job CoordinatorRequest) []primitive.ObjectID {
 
 	/////////////////////////////////////////////
 
-	file1 := w.WorkerID.String() + "inter_1.json"
-	file2 := w.WorkerID.String() + "inter_2.json"
-	file3 := w.WorkerID.String() + "inter_3.json"
-	inter_filenames := []string{file1, file2, file3}
+	// file1 := w.WorkerID.String() + "inter_1.json"
+	// file2 := w.WorkerID.String() + "inter_2.json"
+	// file3 := w.WorkerID.String() + "inter_3.json"
+	// inter_filenames := []string{file1, file2, file3}
 
 	oids := make([]primitive.ObjectID, 0)
 
-	for i, name := range inter_filenames {
-		tempFile, err := os.Create(name)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer os.Remove(name)
+	// for i, name := range inter_filenames {
+	// 	tempFile, err := os.Create(name)
+	// 	if err != nil {
+	// 		log.Fatal(err)
+	// 	}
+	// 	defer os.Remove(name)
 
-		enc := json.NewEncoder(tempFile)
-		for _, kv := range intermediate_files[i] {
-			err = enc.Encode(&kv)
-			if err != nil {
-				log.Fatal(err)
-			}
-		}
-		tempFile.Close()
+	// 	enc := json.NewEncoder(tempFile)
+	// 	for _, kv := range intermediate_files[i] {
+	// 		err = enc.Encode(&kv)
+	// 		if err != nil {
+	// 			log.Fatal(err)
+	// 		}
+	// 	}
+	// 	tempFile.Close()
 
-		/******/
-		// send the name of the file to the channel
-		w.intermediatesCh <- name
+	// 	/******/
+	// 	// send the name of the file to the channel
+	// 	w.intermediatesCh <- name
 
-		// get the objectID of the uploaded file and append to oids
-		objectID := <-w.uploadedCh
+	// 	// get the objectID of the uploaded file and append to oids
+	// 	objectID := <-w.uploadedCh
 
-		/* this line is what we are changing */
-		oids = append(oids, objectID)
-	}
-	WPrintf("[handleMap] Worker %v uploaded results to OIDs %v\n", w.WorkerID, oids)
+	// 	/* this line is what we are changing */
+	// 	oids = append(oids, objectID)
+	// }
+	// WPrintf("[handleMap] Worker %v uploaded results to OIDs %v\n", w.WorkerID, oids)
 	return oids
 }
 
@@ -286,6 +291,12 @@ func (w *AviaryWorker) handleReduce(job *CoordinatorRequest) primitive.ObjectID 
 		}
 		fmt.Printf("read %v\n", keyval)
 		keyvalues = append(keyvalues, keyval)
+	}
+
+	for _, v := range keyvalues {
+		if v.Key == "A" {
+			fmt.Printf("found %v\n", v)
+		}
 	}
 	// panic("asdf")
 
