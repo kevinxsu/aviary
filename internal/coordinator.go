@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/rpc"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -117,6 +118,8 @@ func (c *AviaryCoordinator) ReduceComplete(request *ReduceCompleteRequest, reply
 		// defer c.jobs[request.ClientID][request.JobID].mu.Unlock()
 		c.jobs[request.ClientID][request.JobID].State = DONE
 		CPrintf("[Coordinator] REDUCE TASKS COMPLETED\n")
+		now := time.Now()
+		CPrintf("[Coordinator] Job %d took %v\n", request.JobID, now.Sub(c.jobStartTime))
 	}
 	c.jobs[request.ClientID][request.JobID].FileOIDs = append(c.jobs[request.ClientID][request.JobID].FileOIDs, request.OID)
 
@@ -156,6 +159,7 @@ func (c *AviaryCoordinator) listenForClerkRequests() {
 	for request := range c.clerkRequestCh { // c.startNewJob(&request)
 		CPrintf("[listenForClerkRequests] received clerk request\n")
 		c.mu.Lock()
+		c.jobStartTime = time.Now()
 		clientId := request.ClientID
 		// TODO: Generate a random ID for the new job with something like:
 		// jobID := IHash((c._gensym()).String())
