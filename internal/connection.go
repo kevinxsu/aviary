@@ -17,6 +17,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+const program = "indexer"
+
 // long-running goroutine to maintain a connection between Coordinator and MongoDB
 func (c *AviaryCoordinator) mongoConnection(ch chan bool) {
 	// set to stable version 1
@@ -76,6 +78,15 @@ func (c *AviaryCoordinator) mongoConnection(ch chan bool) {
 
 		case <-c.dropCollectionsCh:
 			CPrintf("[mongoConnection] CASE: <-c.dropCollectionsCh\n\n")
+			collections := []string{"aviaryIntermediates.chunks",
+				"aviaryIntermediates.files"}
+			for _, collection := range collections {
+				tmp := client.Database("db").Collection(collection)
+				if err := tmp.Drop(context.Background()); err != nil {
+					panic(err)
+				}
+			}
+
 			for i := 0; i < 3; i++ {
 				tmp := client.Database("db").Collection("intermediatesPartition" + strconv.Itoa(i))
 				err := tmp.Drop(context.TODO())
@@ -180,8 +191,13 @@ func (w *AviaryWorker) mongoConnection(ch chan bool) {
 				defer file.Close()
 			} else {
 				WPrintf("[mongoConnection] skipping download step for macOS")
-				w.mapf = Map
-				w.reducef = Reduce
+				if program == "wc" {
+					w.mapf = WCMap
+					w.reducef = WCReduce
+				} else {
+					w.mapf = IMap
+					w.reducef = IReduce
+				}
 			}
 			// allow the other goroutine to make progress
 			w.startCh <- true
