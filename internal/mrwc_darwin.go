@@ -30,8 +30,15 @@ func Map(filename string, contents string) []KeyValue {
 // map tasks, with a list of all the values created for that key by
 // any map task.
 func Reduce(key string, values []string) string {
-	// return the number of occurrences of this word.
-	return strconv.Itoa(len(values))
+	sum := 0
+	for _, value := range values {
+		casted, err := strconv.Atoi(value)
+		if err != nil {
+			panic(err)
+		}
+		sum += casted
+	}
+	return strconv.Itoa(sum)
 }
 
 // from 6.5840

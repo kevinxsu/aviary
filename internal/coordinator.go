@@ -178,6 +178,7 @@ func (c *AviaryCoordinator) listenForClerkRequests() {
 			FileOIDs:       make([]primitive.ObjectID, 0),
 		})
 		c.mu.Unlock()
+		c.dropCollectionsCh <- true
 		c.broadcastMapTasks(&request, jobId)
 	}
 }

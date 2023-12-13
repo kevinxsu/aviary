@@ -148,8 +148,12 @@ func downloadResults(oids []primitive.ObjectID, clientID string, jobID int) {
 
 	// create a directory for the resulting .json files
 	dirName := clientID + "-job-" + strconv.Itoa(jobID)
-	err = os.Mkdir(dirName, 0755)
-	if err != nil {
+
+	// if directory already exists, delete it
+	if _, err := os.Stat(dirName); err == nil {
+		os.RemoveAll(dirName)
+	}
+	if err := os.Mkdir(dirName, 0755); err != nil {
 		panic(err)
 	}
 

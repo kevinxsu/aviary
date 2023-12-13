@@ -39,8 +39,9 @@ type AviaryWorker struct {
 	uploadResultsCh chan ReducedResults
 	resultOidCh     chan primitive.ObjectID
 
-	client *mongo.Client
-	fmlCh  chan [][]KeyValue
+	client             *mongo.Client
+	fmlCh              chan [][]KeyValue
+	insertCompletionCh chan bool
 
 	// channel to upload intermediate file
 	intermediatesCh chan string
@@ -79,7 +80,8 @@ func MakeWorker() *AviaryWorker {
 		uploadResultsCh: make(chan ReducedResults),
 		resultOidCh:     make(chan primitive.ObjectID),
 
-		fmlCh: make(chan [][]KeyValue),
+		fmlCh:              make(chan [][]KeyValue),
+		insertCompletionCh: make(chan bool),
 
 		mapf:    nil,
 		reducef: nil,
@@ -229,6 +231,8 @@ func (w *AviaryWorker) handleMap(job CoordinatorRequest) []primitive.ObjectID {
 	// input the partitioned files into new worker collections
 	w.fmlCh <- intermediate_files
 
+	// TODO: need to wait until InsertMany returns
+	<-w.insertCompletionCh
 	//
 
 	/////////////////////////////////////////////
@@ -344,26 +348,33 @@ func (w *AviaryWorker) handleReduce(job *CoordinatorRequest) primitive.ObjectID 
 		for k := i; k < j; k++ {
 			coalescedValues = append(coalescedValues, keyvalues[k].Value)
 		}
-		fmt.Printf("coalesced values; %v\n", coalescedValues)
+		if keyvalues[i].Key == "A" {
+			fmt.Printf("coalesced values; %v\n", coalescedValues)
+		}
 		reducefOutput := w.reducef(keyvalues[i].Key, coalescedValues)
 		// print it into the file
 		fmt.Fprintf(tempFile, "%v %v\n", keyvalues[i].Key, reducefOutput)
 		i = j
 	}
+	fmt.Printf("returning from the reduce loop")
 
 	// so scuffed
 	tempFile.Close()
 
 	// send the results through the channel, which will upload it to GridFS
 	// for the client to later download
-	w.uploadResultsCh <- ReducedResults{
+	w.uploadResultsCh <- ReducedResults{ // blocking here for some reason?
 		filename:  filename,
 		jobID:     job.JobID,
 		clientID:  job.ClientID,
 		partition: job.Partition,
 	}
 
+	fmt.Printf("waiting for an oid from resultOidCh\n")
+
 	oid := <-w.resultOidCh
+
+	fmt.Printf("finished updating results\n")
 
 	// remove the *.so file
 	os.Remove("tmp" + w.WorkerID.String() + "lib.so")
