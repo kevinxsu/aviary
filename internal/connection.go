@@ -167,8 +167,8 @@ func (w *AviaryWorker) mongoConnection(ch chan bool) {
 				defer file.Close()
 			} else {
 				WPrintf("[mongoConnection] skipping download step for macOS")
-				// w.mapf = Map
-				// w.reducef = Reduce
+				w.mapf = Map
+				w.reducef = Reduce
 			}
 			// allow the other goroutine to make progress
 			w.startCh <- true
