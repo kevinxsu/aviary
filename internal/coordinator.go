@@ -96,6 +96,7 @@ func (c *AviaryCoordinator) MapComplete(request *MapCompleteRequest, reply *MapC
 	c.Files[2] = append(c.Files[2], request.OIDs[2])
 	c.count++
 	if c.count == 3 {
+		c.jobStartTimePostMap = time.Now()
 		go c.broadcastReduceTasks(request)
 	}
 
@@ -117,9 +118,9 @@ func (c *AviaryCoordinator) ReduceComplete(request *ReduceCompleteRequest, reply
 		// c.jobs[request.ClientID][request.JobID].mu.Lock()
 		// defer c.jobs[request.ClientID][request.JobID].mu.Unlock()
 		c.jobs[request.ClientID][request.JobID].State = DONE
-		CPrintf("[Coordinator] REDUCE TASKS COMPLETED\n")
 		now := time.Now()
-		CPrintf("[Coordinator] Job %d took %v\n", request.JobID, now.Sub(c.jobStartTime))
+		CPrintf("[Coordinator] REDUCE TASKS COMPLETED:\n\tTotal %v\n\t Map-Reduce: %v\n\tReduce: %v\n",
+			now.Sub(c.jobStartTime), now.Sub(c.jobStartTime), now.Sub(c.jobStartTime))
 	}
 	c.jobs[request.ClientID][request.JobID].FileOIDs = append(c.jobs[request.ClientID][request.JobID].FileOIDs, request.OID)
 
@@ -136,6 +137,7 @@ func MakeCoordinator() *AviaryCoordinator {
 		findCh:            make(chan bson.D),
 		activeConnections: make(map[UUID]int),
 		Files:             make([][]primitive.ObjectID, 3),
+		dropCollectionsCh: make(chan bool),
 		count:             0,
 	}
 
@@ -177,6 +179,7 @@ func (c *AviaryCoordinator) listenForClerkRequests() {
 			ClientID:       clientId,
 			FileOIDs:       make([]primitive.ObjectID, 0),
 		})
+		c.jobStartTimePostDrop = time.Now()
 		c.mu.Unlock()
 		c.broadcastMapTasks(&request, jobId)
 	}

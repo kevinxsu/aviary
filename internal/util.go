@@ -76,8 +76,8 @@ func PrettyPrintJobs(jobs []Job) {
 
 // pretty print the jobs (no locking)
 func (c *AviaryCoordinator) _prettyPrintJobs() {
-	for clientID, jobs := range c.jobs {
-		fmt.Printf("Client %d:\n", clientID)
+	for _, jobs := range c.jobs {
+		// fmt.Printf("Client %d:\n", clientID)
 		PrettyPrintJobs(jobs)
 		// for _, job := range jobs {
 		// 	fmt.Println("Job", job.JobID)
@@ -117,14 +117,14 @@ func callRPC(rpcname string, args interface{}, reply interface{}, host string,
 
 	c, err := rpc.DialHTTP("tcp", host+":"+strconv.Itoa(port))
 	if err != nil {
-		fmt.Printf("callRPC error: %v", err)
+		// fmt.Printf("callRPC error: %v", err)
 		return false
 	}
 	defer c.Close()
 
 	err = c.Call(rpcname, args, reply)
 	if err != nil {
-		fmt.Printf("callRPC error: %v", err)
+		// fmt.Printf("callRPC error: %v", err)
 		return false
 	}
 	return true
@@ -146,7 +146,7 @@ func callRPCWithRetry(rpcname string, args interface{}, reply interface{},
 
 	err = c.Call(rpcname, args, reply)
 	if err != nil {
-		fmt.Printf("callRPCWithRetry error: %v\n", err)
+		// fmt.Printf("callRPCWithRetry error: %v\n", err)
 		return false
 	}
 	return true

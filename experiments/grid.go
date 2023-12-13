@@ -55,7 +55,7 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Printf("New file uploaded with ID %s\n", objectID)
+	// fmt.Printf("New file uploaded with ID %s\n", objectID)
 
 	filter := bson.D{{}}
 	cursor, err := bucket.Find(filter)
@@ -74,7 +74,7 @@ func main() {
 	}
 
 	for _, file := range foundFiles {
-		fmt.Printf("filename: %s, length: %d\n", file.Name, file.Length)
+		// fmt.Printf("filename: %s, length: %d\n", file.Name, file.Length)
 	}
 
 	fmt.Println("GOING OT TRY TO DOWNLOAD FILE FROM GRIDFS")

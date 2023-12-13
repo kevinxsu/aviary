@@ -87,7 +87,7 @@ func main() {
 	}
 
 	id := res.InsertedID
-	fmt.Printf("res id : %s\n", id)
+	// fmt.Printf("res id : %s\n", id)
 
 	for i := 0; i < 3; i++ {
 		// filter := bson.D{{"WorkerID", i}}

@@ -306,7 +306,7 @@ func main() {
 					log.Fatal(err)
 				}
 
-				fmt.Printf("about to upload %s to GridFS\n", filename)
+				// fmt.Printf("about to upload %s to GridFS\n", filename)
 				functionID = uploadPlugin(tmp, clientID)
 				os.Remove(tmp)
 			}
