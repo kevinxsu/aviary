@@ -288,8 +288,16 @@ func main() {
 				downloadResults(reply.OIDS, clientID, jobID)
 			}
 
+		// [upload] [user] [path/to/dir] [path/to/upload/function] [tag]
+		// let the user upload a set of data files from a directory
+		// and specify how they want their data to be executed??
+		// case "upload":
+		// 	clientID := aviary.IHash(argv[1])
+		// 	tag := argv[3]
+		// 	serverAPI := options.ServerAPI(options.ServerAPIVersion1)
+
 		// quickly insert something
-		case "debug", "d":
+		case "debug", "d", "example":
 
 			id := "user"
 			clientID := aviary.IHash(id)

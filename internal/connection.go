@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"strconv"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -89,6 +90,7 @@ func (w *AviaryWorker) mongoConnection(ch chan bool) {
 		panic(err)
 	}
 
+	w.client = client
 	defer func() {
 		if err = client.Disconnect(context.TODO()); err != nil {
 			panic(err)
@@ -241,6 +243,20 @@ func (w *AviaryWorker) mongoConnection(ch chan bool) {
 				panic(err)
 			}
 			w.resultOidCh <- objectID
+
+		// new
+		case partitioned_intermediates := <-w.fmlCh:
+			for i, partition := range partitioned_intermediates {
+				documents := []interface{}{}
+				for _, data := range partition {
+					documents = append(documents, data)
+				}
+				name := "intermediatesPartition" + strconv.Itoa(i)
+				_, err = db.Collection(name).InsertMany(context.TODO(), documents)
+				if err != nil {
+					panic(err)
+				}
+			}
 		}
 	}
 }

@@ -1,6 +1,7 @@
 package aviary
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -16,6 +17,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 // TODO: close files after each run? (or just in general)
@@ -36,6 +38,9 @@ type AviaryWorker struct {
 	reduceResultsCh chan []KeyValue
 	uploadResultsCh chan ReducedResults
 	resultOidCh     chan primitive.ObjectID
+
+	client *mongo.Client
+	fmlCh  chan [][]KeyValue
 
 	// channel to upload intermediate file
 	intermediatesCh chan string
@@ -74,6 +79,8 @@ func MakeWorker() *AviaryWorker {
 		uploadResultsCh: make(chan ReducedResults),
 		resultOidCh:     make(chan primitive.ObjectID),
 
+		fmlCh: make(chan [][]KeyValue),
+
 		mapf:    nil,
 		reducef: nil,
 
@@ -83,6 +90,14 @@ func MakeWorker() *AviaryWorker {
 	// establish connection with mongodb first
 	ch := make(chan bool)
 	go w.mongoConnection(ch)
+
+	// serverAPI := options.ServerAPI(options.ServerAPIVersion1)
+	// opts := options.Client().ApplyURI(uri).SetServerAPIOptions(serverAPI)
+	// client, err := mongo.Connect(context.TODO(), opts)
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// w.client = client
 	<-ch
 
 	// start listening for RPCs
@@ -146,15 +161,41 @@ func (w *AviaryWorker) handleMap(job CoordinatorRequest) []primitive.ObjectID {
 	// get the results of the database find
 	results := <-w.mapResultsCh
 
-	intermediates := make([]KeyValue, 0)
+	// NEW
+	imap := make(map[KeyValue][]string)
+
+	// loop over results to aggregate same keyvalues
 	for _, result := range results {
 		res, _ := json.Marshal(result)
 		contents := string(res)
-		// intermediate has type []KeyValue
-		intermediate := w.mapf("", contents)
-		intermediates = append(intermediates, intermediate...)
+		inter := w.mapf("", contents)
+		for _, kv := range inter {
+			imap[kv] = append(imap[kv], kv.Value)
+		}
 	}
 
+	actual_results := make([]KeyValue, 0)
+	for kv, kvslice := range imap {
+		reducef_kv := w.reducef(kv.Key, kvslice)
+		actual_results = append(actual_results, KeyValue{Key: kv.Key, Value: reducef_kv})
+	}
+
+	intermediates := actual_results
+
+	///
+
+	// intermediates := make([]KeyValue, 0)
+	// for _, result := range results {
+	// 	res, _ := json.Marshal(result)
+	// 	contents := string(res)
+	// 	// intermediate has type []KeyValue
+	// 	intermediate := w.mapf("", contents)
+
+	// 	// TODO: apply special update/reduce logic here
+	// 	intermediates = append(intermediates, intermediate...)
+	// }
+
+	/******/
 	// TODO: fix hardcode
 	nreduce := 3
 	intermediate_files := make([][]KeyValue, nreduce)
@@ -162,8 +203,30 @@ func (w *AviaryWorker) handleMap(job CoordinatorRequest) []primitive.ObjectID {
 	// sort into their bins
 	for _, kv := range intermediates {
 		ikey := ihash(kv.Key) % nreduce
+
+		// TODO: maybe change this here
 		intermediate_files[ikey] = append(intermediate_files[ikey], kv)
+
+		// NEW STUFF
+		// open new connection to DB intermedciates collection
+
+		// check if key exists in collection
+		//	if so, then apply update to existing key
+		//  else, add the new kv pair directly into the collection
+
+		// intermediates:
+		//	 ikey
+		//   ikey
+		//   ikey
 	}
+	/////////////////////////////////////////////
+
+	// input the partitioned files into new worker collections
+	w.fmlCh <- intermediate_files
+
+	//
+
+	/////////////////////////////////////////////
 
 	file1 := w.WorkerID.String() + "inter_1.json"
 	file2 := w.WorkerID.String() + "inter_2.json"
@@ -188,14 +251,16 @@ func (w *AviaryWorker) handleMap(job CoordinatorRequest) []primitive.ObjectID {
 		}
 		tempFile.Close()
 
+		/******/
 		// send the name of the file to the channel
 		w.intermediatesCh <- name
 
 		// get the objectID of the uploaded file and append to oids
 		objectID := <-w.uploadedCh
+
+		/* this line is what we are changing */
 		oids = append(oids, objectID)
 	}
-
 	WPrintf("[handleMap] Worker %v uploaded results to OIDs %v\n", w.WorkerID, oids)
 	return oids
 }
@@ -203,11 +268,35 @@ func (w *AviaryWorker) handleMap(job CoordinatorRequest) []primitive.ObjectID {
 func (w *AviaryWorker) handleReduce(job *CoordinatorRequest) primitive.ObjectID {
 	WPrintf("[handleReduce] Worker starting to process Reduce task\n\n")
 
+	///////////////////////////////////// NEW
+
+	// the data is just in "intermediatesPartition"+strconv.Itoa(job.Partition)
+
+	keyvalues := make([]KeyValue, 0)
+	db := w.client.Database("db")
+	res, err := db.Collection("intermediatesPartition"+strconv.Itoa(job.Partition)).Find(context.TODO(), bson.D{})
+	if err != nil {
+		log.Fatal("[handleReduce] Could not find ")
+	}
+
+	for res.Next(context.TODO()) {
+		var keyval KeyValue
+		if err := res.Decode(&keyval); err != nil {
+			panic(err)
+		}
+		fmt.Printf("read %v\n", keyval)
+		keyvalues = append(keyvalues, keyval)
+	}
+	panic("asdf")
+
+	/////////////////////////////////////
+
 	// files to download from gridfs
 	oids := job.OIDs
 	WPrintf("[handleReduce] processing OIDs: %v\n\n", oids)
 
-	keyvalues := make([]KeyValue, 0)
+	// keyvalues := make([]KeyValue, 0)
+	keyvalues = make([]KeyValue, 0)
 
 	// download the file contents
 	for _, oid := range oids {
