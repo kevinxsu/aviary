@@ -2,6 +2,7 @@ package aviary
 
 import (
 	"sync"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -44,7 +45,8 @@ type AviaryCoordinator struct {
 	mu                sync.Mutex
 	dropCollectionsCh chan bool
 	// placeholder, TODO: fix this so we have dynamic number of workers
-	count int
+	count     int
+	startTime time.Time
 }
 
 // wrap, to pass through channel

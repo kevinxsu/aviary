@@ -17,7 +17,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-const program = "indexer"
+const program = "wc"
 
 // long-running goroutine to maintain a connection between Coordinator and MongoDB
 func (c *AviaryCoordinator) mongoConnection(ch chan bool) {
