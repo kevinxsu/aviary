@@ -3,7 +3,6 @@ package aviary
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log"
 	"os"
@@ -94,6 +93,7 @@ func (c *AviaryCoordinator) mongoConnection(ch chan bool) {
 					panic(err)
 				}
 			}
+			c.dropCollectionsResultCh <- true
 		}
 	}
 }
@@ -258,7 +258,7 @@ func (w *AviaryWorker) mongoConnection(ch chan bool) {
 
 		// upload the result of the reduction to gridfs
 		case result := <-w.uploadResultsCh:
-			fmt.Printf("received result from uploadResultsCh\n")
+			// fmt.Printf("received result from uploadResultsCh\n")
 			grid_opts := options.GridFSBucket().SetName("aviaryResults")
 			bucket, err := gridfs.NewBucket(db, grid_opts)
 			if err != nil {
@@ -288,7 +288,7 @@ func (w *AviaryWorker) mongoConnection(ch chan bool) {
 				}
 			}
 			w.insertCompletionCh <- true
-			fmt.Printf("finished marking insertion as complete!!!\n")
+			// fmt.Printf("finished marking insertion as complete!!!\n")
 		}
 	}
 }

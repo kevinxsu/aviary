@@ -178,15 +178,15 @@ func (w *AviaryWorker) handleMap(job CoordinatorRequest) []primitive.ObjectID {
 
 	actual_results := make([]KeyValue, 0)
 	for kv, kvslice := range imap {
-		fmt.Printf("sending to eager reduce %v\n", kvslice)
+		// fmt.Printf("sending to eager reduce %v\n", kvslice)
 		reducef_kv := w.reducef(kv.Key, kvslice)
 		actual_results = append(actual_results, KeyValue{Key: kv.Key, Value: reducef_kv})
 	}
 
 	intermediates := actual_results
 
-	fmt.Printf("%v\n", imap[KeyValue{Key: "A", Value: "1"}])
-	fmt.Printf("len: %v\n", len(imap[KeyValue{Key: "A", Value: "1"}]))
+	// fmt.Printf("%v\n", imap[KeyValue{Key: "A", Value: "1"}])
+	// fmt.Printf("len: %v\n", len(imap[KeyValue{Key: "A", Value: "1"}]))
 	// time.Sleep(60 * time.Second)
 
 	///
@@ -284,10 +284,16 @@ func (w *AviaryWorker) handleReduce(job *CoordinatorRequest) primitive.ObjectID 
 	keyvalues := make([]KeyValue, 0)
 	db := w.client.Database("db")
 	name := "intermediatesPartition" + strconv.Itoa(job.Partition)
+	for {
+		if i, _ := db.Collection(name).EstimatedDocumentCount(context.TODO()); i != 0 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 	res, err := db.Collection(name).Find(context.TODO(), bson.D{})
 
-	fmt.Printf("reading collection %v\n", name)
-	fmt.Printf("job.Partition: %d\n", job.Partition)
+	// fmt.Printf("reading collection %v\n", name) // TODO: this might not be ready?
+	// fmt.Printf("job.Partition: %d\n", job.Partition)
 
 	if err != nil {
 		log.Fatal("[handleReduce] Could not find ")
@@ -298,13 +304,13 @@ func (w *AviaryWorker) handleReduce(job *CoordinatorRequest) primitive.ObjectID 
 		if err := res.Decode(&keyval); err != nil {
 			panic(err)
 		}
-		fmt.Printf("read %v\n", keyval)
+		// fmt.Printf("read %v\n", keyval)
 		keyvalues = append(keyvalues, keyval)
 	}
 
 	for _, v := range keyvalues {
 		if v.Key == "A" {
-			fmt.Printf("found %v\n", v)
+			// fmt.Printf("found %v\n", v)
 		}
 	}
 	// panic("asdf")
@@ -349,14 +355,14 @@ func (w *AviaryWorker) handleReduce(job *CoordinatorRequest) primitive.ObjectID 
 			coalescedValues = append(coalescedValues, keyvalues[k].Value)
 		}
 		if keyvalues[i].Key == "A" {
-			fmt.Printf("coalesced values; %v\n", coalescedValues)
+			// fmt.Printf("coalesced values; %v\n", coalescedValues)
 		}
 		reducefOutput := w.reducef(keyvalues[i].Key, coalescedValues)
 		// print it into the file
 		fmt.Fprintf(tempFile, "%v %v\n", keyvalues[i].Key, reducefOutput)
 		i = j
 	}
-	fmt.Printf("returning from the reduce loop")
+	// fmt.Printf("returning from the reduce loop\n")
 
 	// so scuffed
 	tempFile.Close()
@@ -370,11 +376,11 @@ func (w *AviaryWorker) handleReduce(job *CoordinatorRequest) primitive.ObjectID 
 		partition: job.Partition,
 	}
 
-	fmt.Printf("waiting for an oid from resultOidCh\n")
+	// fmt.Printf("waiting for an oid from resultOidCh\n")
 
 	oid := <-w.resultOidCh
 
-	fmt.Printf("finished updating results\n")
+	// fmt.Printf("finished updating results\n")
 
 	// remove the *.so file
 	os.Remove("tmp" + w.WorkerID.String() + "lib.so")

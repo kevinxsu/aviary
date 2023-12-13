@@ -95,6 +95,7 @@ func (c *AviaryCoordinator) MapComplete(request *MapCompleteRequest, reply *MapC
 	// c.Files[2] = append(c.Files[2], request.OIDs[2])
 	c.count++
 	if c.count == 3 {
+		c.startTimePostMap = time.Now()
 		go c.broadcastReduceTasks(request)
 	}
 
@@ -115,10 +116,9 @@ func (c *AviaryCoordinator) ReduceComplete(request *ReduceCompleteRequest, reply
 		// update the state of the Job{JobID} associated ClientID
 		// c.jobs[request.ClientID][request.JobID].mu.Lock()
 		// defer c.jobs[request.ClientID][request.JobID].mu.Unlock()
-		now := time.Now()
-		CPrintf("[Coordinator] REDUCE TASKS COMPLETED in %v\n", now.Sub(c.startTime))
 		c.jobs[request.ClientID][request.JobID].State = DONE
-		CPrintf("[Coordinator] REDUCE TASKS COMPLETED\n")
+		now := time.Now()
+		CPrintf("[Coordinator] REDUCE TASKS COMPLETED:\n\tTotal %v\n\t Map-Reduce: %v\n\tReduce: %v\n", now.Sub(c.startTime), now.Sub(c.startTimePostDrop), now.Sub(c.startTimePostMap))
 
 		// TODO: clear the collection (this means no concurrent jobs)
 		// c.dropCollectionsCh <- true
@@ -132,15 +132,16 @@ func (c *AviaryCoordinator) ReduceComplete(request *ReduceCompleteRequest, reply
 // creates an Aviary Coordinator
 func MakeCoordinator() *AviaryCoordinator {
 	c := AviaryCoordinator{
-		jobs:              make(map[int][]Job),
-		counts:            make(map[int]int),
-		clerkRequestCh:    make(chan ClerkRequest),
-		insertCh:          make(chan bson.D),
-		findCh:            make(chan bson.D),
-		activeConnections: make(map[UUID]int),
-		Files:             make([][]primitive.ObjectID, 3),
-		dropCollectionsCh: make(chan bool),
-		count:             0,
+		jobs:                    make(map[int][]Job),
+		counts:                  make(map[int]int),
+		clerkRequestCh:          make(chan ClerkRequest),
+		insertCh:                make(chan bson.D),
+		findCh:                  make(chan bson.D),
+		activeConnections:       make(map[UUID]int),
+		Files:                   make([][]primitive.ObjectID, 3),
+		dropCollectionsCh:       make(chan bool),
+		dropCollectionsResultCh: make(chan bool),
+		count:                   0,
 	}
 
 	// establish connection to MongoDB before listening for RPCs
@@ -183,6 +184,8 @@ func (c *AviaryCoordinator) listenForClerkRequests() {
 		})
 		c.mu.Unlock()
 		c.dropCollectionsCh <- true
+		<-c.dropCollectionsResultCh
+		c.startTimePostDrop = time.Now()
 		c.broadcastMapTasks(&request, jobId)
 	}
 }
