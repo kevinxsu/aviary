@@ -71,6 +71,24 @@ func (c *AviaryCoordinator) mongoConnection(ch chan bool) {
 				log.Fatal("mongo find error: ", err)
 			}
 			CPrintf("Coordinator found %v\n\n", res)
+
+		// case <-c.createIntCollectionCh:
+		// 	CPrintf("[mongoConnection] CASE: <-c.createIntCollectionCh\n\n")
+		// 	intermediate := client.Database("db").CreateCollection(context.TODO(), "aviaryIntermediates")
+		// 	if err != nil {
+		// 		panic(err)
+		// 	}
+
+		case <-c.dropCollectionsCh:
+			CPrintf("[mongoConnection] CASE: <-c.dropCollectionsCh\n\n")
+			for _, name := range []string{
+				"aviaryIntermediates.files",
+				"aviaryIntermediates.chunks",
+			} {
+				col := client.Database("db").Collection(name)
+				col.Drop(context.TODO())
+			}
+			c.dropCollectionsResultCh <- true
 		}
 	}
 }

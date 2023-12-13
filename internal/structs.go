@@ -48,7 +48,11 @@ type AviaryCoordinator struct {
 	jobStartTimePostDrop time.Time
 	jobStartTimePostMap  time.Time
 
-	dropCollectionsCh chan bool
+	dropCollectionsCh       chan bool
+	dropCollectionsResultCh chan bool
+
+	createIntCollectionCh       chan bool
+	createIntCollectionResultCh chan bool
 
 	// placeholder, TODO: fix this so we have dynamic number of workers
 	count int
