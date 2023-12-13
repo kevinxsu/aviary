@@ -279,7 +279,12 @@ func (w *AviaryWorker) handleReduce(job *CoordinatorRequest) primitive.ObjectID 
 
 	keyvalues := make([]KeyValue, 0)
 	db := w.client.Database("db")
-	res, err := db.Collection("intermediatesPartition"+strconv.Itoa(job.Partition)).Find(context.TODO(), bson.D{})
+	name := "intermediatesPartition" + strconv.Itoa(job.Partition)
+	res, err := db.Collection(name).Find(context.TODO(), bson.D{})
+
+	fmt.Printf("reading collection %v\n", name)
+	fmt.Printf("job.Partition: %d\n", job.Partition)
+
 	if err != nil {
 		log.Fatal("[handleReduce] Could not find ")
 	}
@@ -339,6 +344,7 @@ func (w *AviaryWorker) handleReduce(job *CoordinatorRequest) primitive.ObjectID 
 		for k := i; k < j; k++ {
 			coalescedValues = append(coalescedValues, keyvalues[k].Value)
 		}
+		fmt.Printf("coalesced values; %v\n", coalescedValues)
 		reducefOutput := w.reducef(keyvalues[i].Key, coalescedValues)
 		// print it into the file
 		fmt.Fprintf(tempFile, "%v %v\n", keyvalues[i].Key, reducefOutput)
