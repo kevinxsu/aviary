@@ -118,7 +118,8 @@ func (c *AviaryCoordinator) ReduceComplete(request *ReduceCompleteRequest, reply
 		CPrintf("[Coordinator] REDUCE TASKS COMPLETED\n")
 
 		// TODO: clear the collection (this means no concurrent jobs)
-		c.dropCollectionsCh <- true
+		// c.dropCollectionsCh <- true
+		// time.Sleep(time.Second * 10)
 	}
 	c.jobs[request.ClientID][request.JobID].FileOIDs = append(c.jobs[request.ClientID][request.JobID].FileOIDs, request.OID)
 
@@ -176,7 +177,6 @@ func (c *AviaryCoordinator) listenForClerkRequests() {
 			ClientID:       clientId,
 			FileOIDs:       make([]primitive.ObjectID, 0),
 		})
-		// c.dropCollectionsCh <- true
 		c.mu.Unlock()
 		c.broadcastMapTasks(&request, jobId)
 	}

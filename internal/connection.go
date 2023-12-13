@@ -261,6 +261,7 @@ func (w *AviaryWorker) mongoConnection(ch chan bool) {
 				for _, data := range partition {
 					documents = append(documents, data)
 				}
+				// name := intermediatesParititon + i + clientid + jobid
 				name := "intermediatesPartition" + strconv.Itoa(i)
 				_, err = db.Collection(name).InsertMany(context.TODO(), documents)
 				if err != nil {
